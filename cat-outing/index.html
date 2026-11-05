@@ -141,9 +141,11 @@ h1 {
 .furn svg { display: block; width: 88%; height: 88%; margin: 6%; }
 .cat:focus-visible { outline: 4px solid var(--focus); outline-offset: -4px; }
 .cat .rot { position: absolute; left: 50%; top: 50%; display: block; }
-.cat svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.cat.walking svg { animation: waddle 0.22s ease-in-out infinite alternate; }
-.cat.bumped svg { animation: shake 0.4s ease-in-out; }
+.cat .body { position: absolute; inset: 0; display: block; }
+.cat .spr { display: block; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.cat .arrow { position: absolute; left: 50%; width: 28%; height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); }
+.cat.walking .body { animation: waddle 0.22s ease-in-out infinite alternate; }
+.cat.bumped .body { animation: shake 0.4s ease-in-out; }
 .cat.hint::after {
   content: "";
   position: absolute; inset: 3%;
@@ -282,7 +284,7 @@ dd { margin: 0; }
 details p { margin: 6px 0 0; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
-  .cat.walking svg, .cat.bumped svg, .cat.hint::after { animation: none; }
+  .cat.walking .body, .cat.bumped .body, .cat.hint::after { animation: none; }
 }
 </style>
 </head>
@@ -490,7 +492,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
         if (coverW[pr * n + pc] < pick.w) coverW[pr * n + pc] = pick.w;
         pr += DIRS[pick.d].dr; pc += DIRS[pick.d].dc;
       }
-      cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: Math.floor(rnd() * 6), alive: true });
+      cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: Math.floor(rnd() * 8), alive: true });
     }
     return { stage: stage, n: n, cats: cats, furn: furn, filled: filled, target: P.target };
   }
@@ -555,50 +557,27 @@ details p { margin: 6px 0 0; color: var(--muted); }
 
   window.CatOuting = { generate: generate, analyze: analyze, firstBlocker: firstBlocker };
 
-  /* ---------- 고양이·가구 그리기 (나중에 일러스트로 갈아 끼울 부분) ---------- */
+  /* ---------- 고양이·가구 그리기 ---------- */
   var OUT = "#2a221c";
+  // 고양이 그림은 cats/<번호>-<칸수>.webp — 위를 보는 모습, 1칸이 정사각형이고 L칸이면 세로로 L배.
   var COATS = [
-    { name: "치즈", fur: "#f0a045", mark: "#c9742a", eye: OUT, kind: "tabby" },
-    { name: "고등어", fur: "#a3acb1", mark: "#626b70", eye: OUT, kind: "tabby" },
-    { name: "까만", fur: "#3d3836", mark: "#3d3836", eye: "#f2c94c", kind: "plain" },
-    { name: "하얀", fur: "#f7f3ea", mark: "#f7f3ea", eye: OUT, kind: "plain" },
-    { name: "삼색", fur: "#f7f3ea", mark: "#f0a045", eye: OUT, kind: "calico" },
-    { name: "크림", fur: "#ecd9b0", mark: "#c4a56c", eye: OUT, kind: "tabby" }
+    { id: "01", name: "회색 장모" },
+    { id: "02", name: "턱시도" },
+    { id: "03", name: "하얀 폴드" },
+    { id: "04", name: "고등어 아기" },
+    { id: "05", name: "러시안 블루" },
+    { id: "06", name: "샴" },
+    { id: "07", name: "졸린 폴드" },
+    { id: "08", name: "까만 모자" }
   ];
-  // 위를 보는 고양이. L칸짜리면 몸통만 뒤로 늘어난다.
+  function catSrc(v, L) { return "cats/" + COATS[v].id + "-" + L + ".webp"; }
+  COATS.forEach(function (k, v) { for (var L = 1; L <= 3; L++) new Image().src = catSrc(v, L); });   // 첫 판에서 깜빡이지 않게
+  // 화살표는 예전 그림처럼 머리 칸의 62% 높이(등 위)에 둔다
   function catSVG(v, L) {
-    var k = COATS[v], f = k.fur, ext = (L - 1) * 100, y;
-    var s = ' stroke="' + OUT + '" stroke-width="3" stroke-linejoin="round"';
-    var marks = "";
-    if (k.kind === "tabby") {
-      var d = "";
-      for (y = 50; y <= 72 + ext; y += 11) d += "M39 " + y + " Q50 " + (y - 6) + " 61 " + y + " ";
-      marks = '<path d="' + d + '" fill="none" stroke="' + k.mark + '" stroke-width="4" stroke-linecap="round"/>';
-    } else if (k.kind === "calico") {
-      var flip = 0;
-      for (y = 52; y <= 72 + ext; y += 26) {
-        marks += '<circle cx="' + (flip % 2 ? 59 : 41) + '" cy="' + y + '" r="8.5" fill="' + (flip % 2 ? "#3d3836" : "#f0a045") + '"/>';
-        flip++;
-      }
-    }
-    var headMark = k.kind === "calico" ? '<circle cx="59" cy="31" r="8" fill="#f0a045"/><circle cx="41" cy="35" r="6" fill="#3d3836"/>' : "";
-    return '<svg viewBox="0 0 100 ' + (100 * L) + '" aria-hidden="true">' +
-      '<g transform="translate(0 ' + ext + ')">' +
-      '<path d="M50 82 C50 98 74 98 74 84" fill="none" stroke="' + OUT + '" stroke-width="12" stroke-linecap="round"/>' +
-      '<path d="M50 82 C50 98 74 98 74 84" fill="none" stroke="' + f + '" stroke-width="6.5" stroke-linecap="round"/>' +
-      '<ellipse cx="30" cy="74" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
-      '<ellipse cx="70" cy="74" rx="6" ry="8" fill="' + f + '"' + s + '/></g>' +
-      '<ellipse cx="29" cy="46" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
-      '<ellipse cx="71" cy="46" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
-      '<rect x="27" y="33" width="46" height="' + (54 + ext) + '" rx="23" fill="' + f + '"' + s + '/>' + marks +
-      '<path d="M33 25 L35 5 L49 14 Z" fill="' + f + '"' + s + '/>' +
-      '<path d="M67 25 L65 5 L51 14 Z" fill="' + f + '"' + s + '/>' +
-      '<circle cx="50" cy="30" r="19" fill="' + f + '"' + s + '/>' + headMark +
-      '<circle cx="42" cy="25" r="2.8" fill="' + k.eye + '"/><circle cx="58" cy="25" r="2.8" fill="' + k.eye + '"/>' +
-      '<path d="M46.5 15 h7 l-3.5 4.5 z" fill="#e07f86"/>' +
-      '<g class="arrow"><circle cx="50" cy="62" r="14" fill="#ffffff" stroke="' + OUT + '" stroke-width="2.5"/>' +
-      '<path d="M50 51 L60 64 H54 V72 H46 V64 H40 Z" fill="' + OUT + '"/></g>' +
-      "</svg>";
+    return '<span class="body"><img class="spr" src="' + catSrc(v, L) + '" alt="" draggable="false">' +
+      '<svg class="arrow" viewBox="0 0 100 100" aria-hidden="true" style="top:' + (62 / L) + '%">' +
+      '<circle cx="50" cy="50" r="44" fill="#ffffff" fill-opacity="0.92" stroke="' + OUT + '" stroke-width="6"/>' +
+      '<path d="M50 18 L80 56 H61 V82 H39 V56 H20 Z" fill="' + OUT + '"/></svg></span>';
   }
   function furnSVG(kind) {
     if (kind === 0) {   // 화분
