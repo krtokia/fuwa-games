@@ -244,10 +244,10 @@ button.big:focus-visible, button.small:focus-visible { outline: 4px solid var(--
 .cat-row { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px;
   background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 6px 10px 6px 6px; }
 .cat-row img { width: 56px; height: 56px; border-radius: 10px; background: var(--floor); }
-.cat-row input, .cat-row select { font: inherit; font-size: 18px; color: var(--ink); background: var(--ground);
+.cat-row b { font-family: var(--display); font-weight: 400; font-size: 21px; }
+.cat-row select { font: inherit; font-size: 18px; color: var(--ink); background: var(--ground);
   border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; min-width: 0; width: 100%; }
-.cat-row select { width: auto; }
-.cat-row input:focus-visible, .cat-row select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.cat-row select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .cat-row.off img { opacity: .35; }
 button.small.wide { width: 100%; }
 #picker { display: flex; flex-direction: column; gap: 4px; }
@@ -336,7 +336,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
   </div>
 
   <label class="opt"><input type="checkbox" id="optArrows" checked> 고양이 등에 방향 화살표 보이기</label>
-  <button type="button" class="small wide" id="btnCats">고양이 이름 · 등장 빈도</button>
+  <button type="button" class="small wide" id="btnCats">고양이 등장 빈도</button>
 
   <details id="info">
     <summary>이 판의 난이도 (조정용)</summary>
@@ -356,7 +356,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
       <h2>고양이 설정</h2>
       <button type="button" class="small" id="btnCatsBack">돌아가기</button>
     </div>
-    <p class="note">이름과 얼마나 자주 나올지 정해요. 이 기기에만 저장돼요. 판 모양은 그대로고 어떤 고양이가 나오는지만 바뀌어요.</p>
+    <p class="note">고양이마다 얼마나 자주 나올지 정해요. 이 기기에만 저장돼요. 판 모양은 그대로고 어떤 고양이가 나오는지만 바뀌어요.</p>
     <div id="catList"></div>
     <button type="button" class="small" id="btnCatsReset">기본값으로</button>
   </section>
@@ -582,20 +582,20 @@ details p { margin: 6px 0 0; color: var(--muted); }
   /* ---------- 고양이·가구 그리기 ---------- */
   var OUT = "#2a221c";
   // 고양이 그림은 cats/<번호>-<칸수>.webp — 위를 보는 모습, 1칸이 정사각형이고 L칸이면 세로로 L배.
-  // 기본 이름과 등장 빈도(w: 0 안 나옴, 1 보통, 2 자주, 4 아주 자주). 사람마다 「고양이 설정」에서 바꿀 수 있다.
+  // 이름은 실제 고양이 이름이라 고정. 등장 빈도 w(0 안 나옴, 1 보통, 2 자주, 4 아주 자주)만 사람마다 「고양이 설정」에서 바꾼다.
   var COATS = [
     { id: "01", name: "후와", w: 2 },
-    { id: "02", name: "턱시도", w: 1 },
-    { id: "03", name: "하얀 폴드", w: 1 },
-    { id: "04", name: "고등어 아기", w: 1 },
-    { id: "05", name: "러시안 블루", w: 1 },
-    { id: "06", name: "샴", w: 1 },
-    { id: "07", name: "졸린 폴드", w: 1 },
-    { id: "08", name: "까만 모자", w: 1 }
+    { id: "02", name: "나비", w: 1 },
+    { id: "03", name: "두부", w: 1 },
+    { id: "04", name: "슈리", w: 1 },
+    { id: "05", name: "꼬미", w: 1 },
+    { id: "06", name: "나무", w: 1 },
+    { id: "07", name: "봉봉", w: 1 },
+    { id: "08", name: "로로", w: 1 }
   ];
   var FREQ = [[0, "안 나옴"], [1, "보통"], [2, "자주"], [4, "아주 자주"]];
   function catPref(v) { return (saved.cats && saved.cats[COATS[v].id]) || {}; }
-  function catName(v) { var n = catPref(v).name; return n != null && n !== "" ? n : COATS[v].name; }
+  function catName(v) { return COATS[v].name; }
   function catWeight(v) { var w = catPref(v).w; return w != null ? w : COATS[v].w; }
   // 난수 하나(0~1)를 빈도에 맞춰 고양이 번호로 바꾼다. 다 0이면 고르게.
   function pickCoat(x) {
@@ -806,11 +806,10 @@ details p { margin: 6px 0 0; color: var(--muted); }
     COATS.forEach(function (k, v) {
       var row = document.createElement("div"), w = catWeight(v);
       row.className = "cat-row" + (w ? "" : " off");
-      row.innerHTML = '<img alt="" width="56" height="56"><input type="text" maxlength="8" autocomplete="off"><select></select>';
+      row.innerHTML = '<img alt="" width="56" height="56"><b></b><select></select>';
       row.querySelector("img").src = catSrc(v, 1);
-      var inp = row.querySelector("input"), sel = row.querySelector("select");
-      inp.value = catName(v); inp.placeholder = k.name; inp.setAttribute("aria-label", k.name + " 이름");
-      inp.addEventListener("change", function () { setPref(v, "name", inp.value.trim()); });
+      var sel = row.querySelector("select");
+      row.querySelector("b").textContent = k.name;
       sel.setAttribute("aria-label", k.name + " 등장 빈도");
       FREQ.forEach(function (f) { var o = document.createElement("option"); o.value = f[0]; o.textContent = f[1]; if (f[0] === w) o.selected = true; sel.appendChild(o); });
       sel.addEventListener("change", function () { setPref(v, "w", +sel.value); row.classList.toggle("off", !+sel.value); });
@@ -818,7 +817,6 @@ details p { margin: 6px 0 0; color: var(--muted); }
     });
   }
   function closeCats() {
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // 입력 중인 이름도 저장되게
     catSet.hidden = true; app.classList.remove("picking");
     if (catsDirty) { catsDirty = false; loadStage(level.stage); }
     window.scrollTo(0, 0);
