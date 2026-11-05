@@ -236,11 +236,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 button.big:focus-visible, button.small:focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; }
 .win button.big { background: #1f5a4c; color: #ffffff; padding: 0 28px; margin-top: 6px; }
 
-.row.three { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.row.three button.small { font-size: 19px; padding: 0 4px; }
-.app.picking > :not(.top):not(#picker):not(#catSet) { display: none; }
-#catSet { display: flex; flex-direction: column; gap: 10px; }
-#catSet .note { margin: 0; color: var(--muted); font-size: 17px; }
+.app.picking > :not(.top):not(#hist):not(#catSet) { display: none; }
+#catSet, #hist { display: flex; flex-direction: column; gap: 10px; }
+#catSet .note, #hist .note { margin: 0; color: var(--muted); font-size: 17px; }
 .cat-row { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px;
   background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 6px 10px 6px 6px; }
 .cat-row img { width: 56px; height: 56px; border-radius: 10px; background: var(--floor); }
@@ -249,50 +247,40 @@ button.big:focus-visible, button.small:focus-visible { outline: 4px solid var(--
   border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; min-width: 0; width: 100%; }
 .cat-row select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 .cat-row.off img { opacity: .35; }
-button.small.wide { width: 100%; }
-#picker { display: flex; flex-direction: column; gap: 4px; }
+
+/* 새 판 설정 */
+.setup { display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 16px; padding: 12px; }
+.setup .lb { font-family: var(--display); font-size: 19px; color: var(--muted); white-space: nowrap; }
+.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; min-width: 0; min-height: 46px; padding: 0 2px; font-family: var(--display); font-size: 19px;
+  background: var(--ground); color: var(--ink); border: 2px solid var(--line); border-radius: 12px; cursor: pointer; touch-action: manipulation;
+  word-break: keep-all; line-height: 1.1; }
+.seg button[aria-pressed="true"] { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+.seg button:focus-visible, .seed input:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.seed { display: flex; gap: 6px; min-width: 0; }
+.seed input { flex: 1; min-width: 0; font-family: var(--display); font-size: 21px; text-align: center; color: var(--ink);
+  background: var(--ground); border: 2px solid var(--line); border-radius: 12px; padding: 4px 6px; }
+.seed button.small { min-height: 46px; padding: 0 10px; font-size: 17px; white-space: nowrap; }
+
+/* 기록 */
+.h-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: stretch; }
+.h-row > button.small { padding: 0 14px; font-size: 17px; }
+.h-go { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; text-align: left; font: inherit; color: var(--ink);
+  background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 8px 12px; cursor: pointer; touch-action: manipulation; }
+.h-go:focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; }
+.h-go[aria-current="true"] { border-color: var(--btn); border-width: 3px; }
+.h-t { font-family: var(--display); font-size: 20px; }
+.h-st { color: var(--star-off); letter-spacing: 2px; align-self: center; }
+.h-st .got { color: var(--star); }
+.h-when { grid-column: 1 / -1; color: var(--muted); font-size: 15px; }
+button.small.sure { background: #c0412b; border-color: #c0412b; color: #fff; }
+#histList { display: flex; flex-direction: column; gap: 8px; }
 .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .picker-head h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0; }
 .picker-head button.small { padding: 0 22px; }
-#pickerList h3 { font-family: var(--display); font-weight: 400; font-size: 20px; color: var(--muted); margin: 16px 0 8px; }
-.pick-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-button.pick {
-  min-height: 68px;
-  background: var(--panel);
-  color: var(--ink);
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  font-family: var(--display);
-  cursor: pointer;
-  touch-action: manipulation;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 0;
-}
-button.pick .num { font-size: 24px; line-height: 1; }
-button.pick .st { font-size: 13px; letter-spacing: 1px; line-height: 1; color: var(--star-off); }
-button.pick .st .got { color: var(--star); }
-button.pick[aria-current="true"] { border-color: var(--btn); border-width: 4px; }
-button.pick:focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; }
-
 .opt { display: flex; align-items: center; gap: 10px; font-size: 19px; }
 .opt input { width: 26px; height: 26px; accent-color: var(--btn); }
-
-details {
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  padding: 10px 16px;
-  font-size: 17px;
-}
-summary { cursor: pointer; font-family: var(--display); font-size: 19px; }
-dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 10px 0 6px; font-variant-numeric: tabular-nums; }
-dt { color: var(--muted); }
-dd { margin: 0; }
-details p { margin: 6px 0 0; color: var(--muted); }
 
 /* 폰: 판을 화면 너비 끝까지. 높이로 줄이지 않는다(사파리 주소창 때문에 dvh 가 작아 판이 쪼그라들었음) */
 @media (max-width: 600px) {
@@ -303,7 +291,9 @@ details p { margin: 6px 0 0; color: var(--muted); }
     padding-right: max(6px, env(safe-area-inset-right, 0px));
   }
   .app { gap: 10px; }
-  .top, .how, .status, .row, .opt, details, #btnCats, #picker, #catSet { margin-inline: 4px; }
+  .top, .how, .status, .row, .opt, .setup, #hist, #catSet { margin-inline: 4px; }
+  .setup { padding: 10px; gap: 8px 10px; }
+  .seg button { font-size: 17px; }
   h1 { font-size: 26px; }
   .stage-no { font-size: 20px; padding: 2px 14px; }
   .how { font-size: 15px; }
@@ -320,7 +310,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
 <main class="app">
   <div class="top">
     <h1>고양이 나들이</h1>
-    <div class="stage-no" id="stageNo">1번째 판</div>
+    <div class="stage-no" id="stageNo"></div>
   </div>
   <p class="how">고양이를 누르면 보는 쪽으로 걸어 나가요. 가구는 못 지나가요. 모두 밖으로 내보내 주세요.</p>
 
@@ -332,7 +322,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
         <div class="stars" id="stars" aria-hidden="true"></div>
         <h2>모두 나들이 갔어요!</h2>
         <p id="winMsg"></p>
-        <button type="button" class="big" id="btnWinNext">다음 판으로</button>
+        <button type="button" class="big" id="btnWinNext">🎲 새 판</button>
       </div>
     </div>
   </div>
@@ -346,27 +336,25 @@ details p { margin: 6px 0 0; color: var(--muted); }
     <button type="button" class="big" id="btnHint">힌트 보기</button>
     <button type="button" class="big quiet" id="btnRetry">처음부터 다시</button>
   </div>
-  <div class="row three">
-    <button type="button" class="small" id="btnPrev">◀ 이전 판</button>
-    <button type="button" class="small" id="btnPick">판 고르기</button>
-    <button type="button" class="small" id="btnNext">다음 판 ▶</button>
-  </div>
+
+  <section class="setup" aria-label="새 판 설정">
+    <span class="lb" id="lbSize">칸 수</span>
+    <div class="seg" id="segSize" role="group" aria-labelledby="lbSize"></div>
+    <span class="lb" id="lbDiff">난이도</span>
+    <div class="seg" id="segDiff" role="group" aria-labelledby="lbDiff"></div>
+    <span class="lb"><label for="seedIn">판 번호</label></span>
+    <div class="seed">
+      <input type="text" id="seedIn" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" enterkeyhint="go">
+      <button type="button" class="small" id="btnSeedGo">이 번호로</button>
+      <button type="button" class="small" id="btnDice">🎲 랜덤</button>
+    </div>
+  </section>
 
   <label class="opt"><input type="checkbox" id="optArrows" checked> 고양이 등에 방향 화살표 보이기</label>
-  <button type="button" class="small wide" id="btnCats">고양이 등장 빈도</button>
-
-  <details id="info">
-    <summary>이 판의 난이도 (조정용)</summary>
-    <dl>
-      <dt>판 크기</dt><dd id="iSize"></dd>
-      <dt>고양이</dt><dd id="iCats"></dd>
-      <dt>가구</dt><dd id="iFurn"></dd>
-      <dt>채운 칸</dt><dd id="iFill"></dd>
-      <dt>처음부터 나갈 수 있는 고양이</dt><dd id="iFree"></dd>
-      <dt>막힘이 꼬인 깊이</dt><dd id="iDepth"></dd>
-    </dl>
-    <p>판 번호가 같으면 누가 해도 같은 판이 나와요. 순서를 틀려도 막히는 일은 없어요.</p>
-  </details>
+  <div class="row">
+    <button type="button" class="small" id="btnHist">기록</button>
+    <button type="button" class="small" id="btnCats">고양이 등장 빈도</button>
+  </div>
 
   <section id="catSet" hidden>
     <div class="picker-head">
@@ -378,18 +366,20 @@ details p { margin: 6px 0 0; color: var(--muted); }
     <button type="button" class="small" id="btnCatsReset">기본값으로</button>
   </section>
 
-  <section id="picker" hidden>
+  <section id="hist" hidden>
     <div class="picker-head">
-      <h2>판 고르기</h2>
-      <button type="button" class="small" id="btnBack">돌아가기</button>
+      <h2>기록</h2>
+      <button type="button" class="small" id="btnHistBack">돌아가기</button>
     </div>
-    <div id="pickerList"></div>
+    <p class="note">열어본 판이 최근 순으로 남아요. 누르면 그 판을 다시 해요. 이 기기에만 저장돼요.</p>
+    <div id="histList"></div>
+    <button type="button" class="small" id="btnHistClear">기록 전부 지우기</button>
   </section>
 </main>
 
 <script>
 /*
- * 고양이 나들이 — 프로토타입 v1
+ * 고양이 나들이 — v2: 칸 수·난이도·판 번호로 판을 만든다
  *
  * [v2 메모: 대기석 방식]
  *  - 나간 고양이가 바로 사라지지 않고 화면 아래 대기석(예: 5칸)에 앉는다.
@@ -409,18 +399,16 @@ details p { margin: 6px 0 0; color: var(--muted); }
     { dr: 1, dc: 0, deg: 180, name: "아래쪽" },
     { dr: 0, dc: -1, deg: 270, name: "왼쪽" }
   ];
-  // 난이도 조절은 이 표만 고치면 된다.
-  //  fill: 판에서 채우는 칸 비율(가구 포함)   long: 긴 고양이가 나올 확률   maxLen: 가장 긴 고양이 칸 수
-  //  furn: 가구 개수   maxW: 막힘 꼬임 상한(채우다 모자라면 넘을 수 있음)   p: 남의 길을 막는 자리에 놓을 확률
-  //  picks: 조건을 채운 판을 이만큼 만들어 보고 그중 가장 어려운 판을 고른다 (클수록 기본 난이도가 올라감)
-  var TIERS = [
-    { from: 1, to: 2, size: 3, fill: [0.34, 0.56], long: [0, 0], maxLen: 1, furn: [0, 0], maxW: [1, 2], p: [0, 0.5], picks: 1 },
-    { from: 3, to: 6, size: 4, fill: [0.6, 0.82], long: [0, 0.2], maxLen: 2, furn: [0, 0], maxW: [2, 5], p: [0.5, 0.8], picks: 3 },
-    { from: 7, to: 14, size: 5, fill: [0.76, 0.9], long: [0.2, 0.3], maxLen: 2, furn: [0, 1], maxW: [4, 8], p: [0.65, 0.88], picks: 5 },
-    { from: 15, to: 30, size: 6, fill: [0.84, 0.93], long: [0.25, 0.35], maxLen: 3, furn: [1, 2], maxW: [6, 12], p: [0.75, 0.92], picks: 6 },
-    { from: 31, to: 60, size: 7, fill: [0.86, 0.94], long: [0.3, 0.4], maxLen: 3, furn: [2, 3], maxW: [8, 16], p: [0.85, 0.95], picks: 6 }
+  // 난이도 조절은 이 표만 고치면 된다. 판 크기(칸 수)는 따로 고른다.
+  //  fill: 판에서 채우는 칸 비율(가구 포함, 칸 대비 고양이 양)   long: 긴 고양이가 나올 확률
+  //  p: 남의 길을 막는 자리에 놓을 확률   w: 막힘 꼬임 상한 = 칸 수 × w   picks: 이만큼 만들어 보고 가장 어려운 판을 고른다
+  var DIFFS = [
+    { name: "쉬움", fill: 0.45, long: 0.1, p: 0.35, w: 0.5, picks: 1 },
+    { name: "보통", fill: 0.68, long: 0.25, p: 0.7, w: 1, picks: 3 },
+    { name: "어려움", fill: 0.84, long: 0.3, p: 0.85, w: 1.6, picks: 5 },
+    { name: "아주 어려움", fill: 0.93, long: 0.35, p: 0.95, w: 2.4, picks: 8 }
   ];
-
+  var SIZES = [3, 4, 5, 6, 7], SEED_MAX = 99999;
   function mulberry32(a) {
     return function () {
       a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -429,23 +417,20 @@ details p { margin: 6px 0 0; color: var(--muted); }
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  function lerp(ab, t) { return ab[0] + (ab[1] - ab[0]) * t; }
 
-  function stageParams(s) {
-    var tier = TIERS[TIERS.length - 1];
-    for (var i = 0; i < TIERS.length; i++) { if (s <= TIERS[i].to) { tier = TIERS[i]; break; } }
-    var t = Math.min(1, (s - tier.from) / Math.max(1, tier.to - tier.from));
-    var fill = lerp(tier.fill, t);
+  // cfg = { n: 칸 수, d: 난이도 번호, s: 판 번호 }
+  function stageParams(cfg) {
+    var D = DIFFS[cfg.d], n = cfg.n;
     return {
-      size: tier.size,
-      target: Math.round(fill * tier.size * tier.size),
-      tight: fill,
-      long: lerp(tier.long, t),
-      maxLen: tier.maxLen,
-      furn: Math.round(lerp(tier.furn, t)),
-      maxW: Math.round(lerp(tier.maxW, t)),
-      p: lerp(tier.p, t),
-      picks: tier.picks
+      size: n,
+      target: Math.round(D.fill * n * n),
+      tight: D.fill,
+      long: n <= 3 ? 0 : D.long,
+      maxLen: n <= 3 ? 1 : n <= 5 ? 2 : 3,
+      furn: cfg.d === 0 ? 0 : [0, 0, 1, 1, 2][n - 3] + (cfg.d >= 2 && n >= 6 ? 1 : 0),
+      maxW: Math.max(1, Math.round(n * D.w)),
+      p: D.p,
+      picks: D.picks
     };
   }
 
@@ -461,8 +446,8 @@ details p { margin: 6px 0 0; color: var(--muted); }
 
   // 빈 판에 고양이를 거꾸로 하나씩 넣는다. 넣는 순간 자기 길이 비어 있어야 하므로
   // 넣은 순서의 역순으로 빼면 반드시 풀린다. 가구는 먼저 놓아서 어떤 길도 가구를 지나지 않게 한다.
-  function attempt(stage, P, a) {
-    var n = P.size, rnd = mulberry32(stage * 7919 + 13 + a * 104729);
+  function attempt(cfg, P, a) {
+    var n = P.size, rnd = mulberry32(cfg.s * 7919 + n * 131 + cfg.d * 977 + 13 + a * 104729);
     var grid = new Array(n * n).fill(-1);      // -1 빈칸, -2 가구, 0 이상 고양이 번호
     var coverW = new Array(n * n).fill(0);     // 이 칸을 지나가야 하는 고양이들의 꼬임 높이 최댓값
     var cats = [], furn = [], filled = 0, i;
@@ -533,15 +518,15 @@ details p { margin: 6px 0 0; color: var(--muted); }
       }
       cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: pickCoat(rnd()), alive: true });
     }
-    return { stage: stage, n: n, cats: cats, furn: furn, filled: filled, target: P.target };
+    return { cfg: cfg, n: n, cats: cats, furn: furn, filled: filled, target: P.target };
   }
 
   // 목표 칸 수를 채운 판을 picks개 만들어 보고, 그중 가장 어려운 판을 고른다.
   // 어려움 점수: 꼬임이 깊을수록, 처음부터 나갈 수 있는 고양이 비율이 낮을수록 높다.
-  function generate(stage) {
-    var P = stageParams(stage), best = null, bestScore = -1e9, full = 0;
+  function generate(cfg) {
+    var P = stageParams(cfg), best = null, bestScore = -1e9, full = 0;
     for (var a = 0; a < 60; a++) {
-      var lv = attempt(stage, P, a), info = analyze(lv), ok = lv.filled >= P.target;
+      var lv = attempt(cfg, P, a), info = analyze(lv), ok = lv.filled >= P.target;
       var score = (ok ? 1000 : lv.filled) + info.depth - 10 * info.free / Math.max(1, info.total);
       if (score > bestScore) { best = lv; bestScore = score; }
       if (ok && ++full >= P.picks) break;
@@ -648,11 +633,36 @@ details p { margin: 6px 0 0; color: var(--muted); }
 
   /* ---------- 화면 ---------- */
   var $ = function (id) { return document.getElementById(id); };
-  var room = $("room"), floor = $("floor"), fx = $("fx"), win = $("win");
-  var KEY = "cat-outing.v1";
-  var saved = { stage: 1, best: {}, arrows: true };
-  try { var raw = JSON.parse(localStorage.getItem(KEY)); if (raw && typeof raw === "object") saved = Object.assign(saved, raw); } catch (e) {}
+  var room = $("room"), floor = $("floor"), fx = $("fx"), win = $("win"), app = document.querySelector(".app");
+  // 저장: 지금 판 설정 cfg, 화살표, 고양이 빈도 cats, 기록 hist(최근 순 { n, d, s, stars, t })
+  var KEY = "cat-outing.v2", HIST_MAX = 200;
+  var saved = { cfg: { n: 5, d: 1, s: 0 }, arrows: true, cats: null, hist: [] };
+  try {
+    var raw = JSON.parse(localStorage.getItem(KEY));
+    if (raw && typeof raw === "object") saved = Object.assign(saved, raw);
+    else {   // v1(판 번호 1~60 방식)에서는 화살표·고양이 빈도만 가져온다
+      var old = JSON.parse(localStorage.getItem("cat-outing.v1"));
+      if (old && typeof old === "object") { if (old.arrows === false) saved.arrows = false; if (old.cats) saved.cats = old.cats; }
+    }
+  } catch (e) {}
+  if (!Array.isArray(saved.hist)) saved.hist = [];
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} }
+
+  function int(v, lo, hi, def) { v = parseInt(v, 10); return isNaN(v) ? def : Math.min(hi, Math.max(lo, v)); }
+  function randomSeed() { return 1 + Math.floor(Math.random() * SEED_MAX); }
+  function cfgKey(c) { return c.n + "-" + c.d + "-" + c.s; }
+  function cfgText(c) { return c.n + "칸 · " + DIFFS[c.d].name + " · " + c.s + "번"; }
+  // 기록에 넣거나 맨 위로 올린다. 별은 더 좋을 때만 바꾼다.
+  function remember(c, stars) {
+    var k = cfgKey(c), h = saved.hist, e = null;
+    for (var i = 0; i < h.length; i++) if (cfgKey(h[i]) === k) { e = h.splice(i, 1)[0]; break; }
+    e = e || { n: c.n, d: c.d, s: c.s, stars: 0 };
+    if (stars > (e.stars || 0)) e.stars = stars;
+    e.t = Date.now();
+    h.unshift(e);
+    if (h.length > HIST_MAX) h.length = HIST_MAX;
+    persist();
+  }
 
   var level = null, bumps = 0, hintTimer = 0;
   var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -664,19 +674,13 @@ details p { margin: 6px 0 0; color: var(--muted); }
     return wait(ms + 20);
   }
 
-  function loadStage(stage, gone, keptBumps) {
-    level = generate(Math.max(1, stage));
-    bumps = keptBumps || 0;
-    var info = analyze(level), n = level.n;
-    (gone || []).forEach(function (id) { if (level.cats[id]) level.cats[id].alive = false; });
-    saved.stage = level.stage; persist();
-
-    $("iSize").textContent = n + " × " + n + "칸";
-    $("iCats").textContent = info.total + "마리" + (info.long ? " (긴 고양이 " + info.long + "마리)" : "");
-    $("iFurn").textContent = level.furn.length ? level.furn.length + "개" : "없음";
-    $("iFill").textContent = level.filled + " / " + (n * n) + "칸";
-    $("iFree").textContent = info.free + "마리";
-    $("iDepth").textContent = info.depth === 0 ? "없음 (전부 바로 나감)" : info.depth + "겹";
+  function loadLevel(c) {
+    c = { n: int(c.n, 3, 7, 5), d: int(c.d, 0, DIFFS.length - 1, 1), s: int(c.s, 1, SEED_MAX, randomSeed()) };
+    clearTimeout(hintTimer);
+    saved.cfg = c; remember(c, 0);
+    level = generate(c);
+    bumps = 0;
+    var n = level.n;
 
     room.style.setProperty("--n", n);
     floor.innerHTML = ""; fx.innerHTML = ""; win.hidden = true;
@@ -702,10 +706,9 @@ details p { margin: 6px 0 0; color: var(--muted); }
       cat.el = b;
       floor.appendChild(b);
     });
-    $("stageNo").textContent = level.stage + "번째 판";
-    $("btnPrev").disabled = level.stage <= 1;
+    $("stageNo").textContent = c.s + "번";
+    drawSetup();
     refresh();
-    if (!level.cats.some(function (c) { return c.alive; })) showWin();
   }
 
   function refresh() {
@@ -759,7 +762,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
 
   function showWin() {
     var stars = bumps === 0 ? 3 : bumps <= 2 ? 2 : 1;
-    if (!(saved.best[level.stage] >= stars)) { saved.best[level.stage] = stars; persist(); }
+    remember(level.cfg, stars);
     var html = "";
     for (var i = 0; i < 3; i++) html += '<span class="' + (i < stars ? "on" : "off") + '">★</span>';
     $("stars").innerHTML = html;
@@ -775,44 +778,95 @@ details p { margin: 6px 0 0; color: var(--muted); }
     free[0].el.classList.add("hint");
     hintTimer = setTimeout(clearHint, 4000);
   });
-  $("btnRetry").addEventListener("click", function () { loadStage(level.stage); });
-  $("btnPrev").addEventListener("click", function () { loadStage(level.stage - 1); });
-  $("btnNext").addEventListener("click", function () { loadStage(level.stage + 1); });
-  $("btnWinNext").addEventListener("click", function () { loadStage(level.stage + 1); });
+  $("btnRetry").addEventListener("click", function () { loadLevel(level.cfg); });
+  $("btnWinNext").addEventListener("click", function () { loadLevel({ n: level.cfg.n, d: level.cfg.d, s: randomSeed() }); });
 
-  /* ---------- 판 고르기 (시험판이라 전부 열려 있음) ---------- */
-  var app = document.querySelector(".app"), picker = $("picker"), pickerList = $("pickerList");
-  function closePicker() { picker.hidden = true; app.classList.remove("picking"); }
-  function openPicker() {
-    var html = "", last = Math.max(TIERS[TIERS.length - 1].to, Math.ceil(level.stage / 10) * 10);
-    TIERS.forEach(function (t, i) {
-      var to = i === TIERS.length - 1 ? last : t.to;
-      html += "<h3>" + t.size + " × " + t.size + "칸 (" + t.from + "~" + to + "판)</h3><div class=\"pick-grid\">";
-      for (var s = t.from; s <= to; s++) {
-        var got = saved.best[s] || 0, st = "";
-        for (var k = 0; k < 3; k++) st += k < got ? '<span class="got">★</span>' : "★";
-        html += '<button type="button" class="pick" data-s="' + s + '"' + (s === level.stage ? ' aria-current="true"' : "") +
-          ' aria-label="' + s + "번째 판, " + (got ? "별 " + got + "개" : "아직 안 깸") + '"><span class="num">' + s +
-          '</span><span class="st" aria-hidden="true">' + st + "</span></button>";
-      }
-      html += "</div>";
-    });
-    pickerList.innerHTML = html;
-    app.classList.add("picking"); picker.hidden = false;
-    var cur = pickerList.querySelector('[aria-current="true"]');
-    if (cur) { cur.scrollIntoView({ block: "center" }); cur.focus({ preventScroll: true }); }
-  }
-  $("btnPick").addEventListener("click", openPicker);
-  $("btnBack").addEventListener("click", closePicker);
-  pickerList.addEventListener("click", function (e) {
-    var b = e.target.closest("button.pick");
-    if (!b) return;
-    closePicker();
-    loadStage(+b.getAttribute("data-s"));
-    window.scrollTo(0, 0);
+  /* ---------- 새 판 설정: 칸 수 · 난이도 · 판 번호 ---------- */
+  var segSize = $("segSize"), segDiff = $("segDiff"), seedIn = $("seedIn");
+  SIZES.forEach(function (n) {
+    var b = document.createElement("button"); b.type = "button"; b.textContent = n; b.dataset.n = n;
+    b.setAttribute("aria-label", n + "×" + n + "칸");
+    b.addEventListener("click", function () { loadLevel({ n: n, d: level.cfg.d, s: level.cfg.s }); });
+    segSize.appendChild(b);
   });
-  /* ---------- 고양이 설정 ---------- */
-  var catSet = $("catSet"), catList = $("catList"), catsDirty = false;
+  DIFFS.forEach(function (D, d) {
+    var b = document.createElement("button"); b.type = "button"; b.textContent = D.name; b.dataset.d = d;
+    b.addEventListener("click", function () { loadLevel({ n: level.cfg.n, d: d, s: level.cfg.s }); });
+    segDiff.appendChild(b);
+  });
+  function drawSetup() {
+    var c = level.cfg;
+    [].forEach.call(segSize.children, function (b) { b.setAttribute("aria-pressed", String(+b.dataset.n === c.n)); });
+    [].forEach.call(segDiff.children, function (b) { b.setAttribute("aria-pressed", String(+b.dataset.d === c.d)); });
+    seedIn.value = c.s;
+  }
+  function goSeed() {
+    var v = seedIn.value.replace(/[^0-9]/g, "");
+    if (!v || +v < 1) { seedIn.value = level.cfg.s; return; }
+    seedIn.blur();
+    loadLevel({ n: level.cfg.n, d: level.cfg.d, s: v });
+  }
+  $("btnSeedGo").addEventListener("click", goSeed);
+  seedIn.addEventListener("keydown", function (e) { if (e.key === "Enter") goSeed(); });
+  $("btnDice").addEventListener("click", function () { loadLevel({ n: level.cfg.n, d: level.cfg.d, s: randomSeed() }); });
+
+  /* ---------- 겹쳐 뜨는 화면(기록·고양이 설정) ---------- */
+  var hist = $("hist"), histList = $("histList"), catSet = $("catSet"), catList = $("catList"), catsDirty = false;
+  function openOverlay(sec) { app.classList.add("picking"); sec.hidden = false; window.scrollTo(0, 0); }
+  function closeOverlay() {
+    hist.hidden = true; catSet.hidden = true; app.classList.remove("picking");
+    if (catsDirty) { catsDirty = false; loadLevel(level.cfg); }
+    window.scrollTo(0, 0);
+  }
+  // 지우기 버튼: 한 번 누르면 "정말?", 2.5초 안에 한 번 더 누르면 실행
+  function twoTap(btn, label, fn) {
+    var t = 0;
+    btn.addEventListener("click", function () {
+      if (!btn.classList.contains("sure")) {
+        btn.classList.add("sure"); btn.textContent = "정말?";
+        t = setTimeout(function () { btn.classList.remove("sure"); btn.textContent = label; }, 2500);
+        return;
+      }
+      clearTimeout(t); fn();
+    });
+  }
+  function when(t) {
+    if (!t) return "";
+    var d = new Date(t), p = function (x) { return (x < 10 ? "0" : "") + x; };
+    return (d.getMonth() + 1) + "/" + d.getDate() + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  /* 기록 */
+  function drawHist() {
+    histList.replaceChildren();
+    if (!saved.hist.length) { histList.innerHTML = '<p class="note">아직 기록이 없어요.</p>'; return; }
+    var cur = cfgKey(level.cfg);
+    saved.hist.forEach(function (e) {
+      var row = document.createElement("div"); row.className = "h-row";
+      var go = document.createElement("button"); go.type = "button"; go.className = "h-go";
+      var st = "";
+      for (var k = 0; k < 3; k++) st += k < (e.stars || 0) ? '<span class="got">★</span>' : "★";
+      go.innerHTML = '<span class="h-t"></span><span class="h-st" aria-hidden="true">' + st + '</span><span class="h-when"></span>';
+      go.querySelector(".h-t").textContent = e.s + "번";
+      go.querySelector(".h-when").textContent = e.n + "칸 · " + DIFFS[e.d].name + " · " + when(e.t) + (e.stars ? "" : " · 아직 못 깸");
+      go.setAttribute("aria-label", cfgText(e) + ", " + (e.stars ? "별 " + e.stars + "개" : "아직 못 깸"));
+      if (cfgKey(e) === cur) go.setAttribute("aria-current", "true");
+      go.addEventListener("click", function () { closeOverlay(); loadLevel(e); });
+      var del = document.createElement("button"); del.type = "button"; del.className = "small"; del.textContent = "지우기";
+      del.setAttribute("aria-label", cfgText(e) + " 기록 지우기");
+      twoTap(del, "지우기", function () { saved.hist = saved.hist.filter(function (x) { return x !== e; }); persist(); drawHist(); });
+      row.append(go, del);
+      histList.appendChild(row);
+    });
+  }
+  $("btnHist").addEventListener("click", function () { drawHist(); openOverlay(hist); });
+  $("btnHistBack").addEventListener("click", closeOverlay);
+  twoTap($("btnHistClear"), "기록 전부 지우기", function () {
+    saved.hist = []; persist(); drawHist();
+    var b = $("btnHistClear"); b.classList.remove("sure"); b.textContent = "기록 전부 지우기";
+  });
+
+  /* 고양이 등장 빈도 */
   function setPref(v, key, val) {
     saved.cats = saved.cats || {};
     var p = saved.cats[COATS[v].id] = saved.cats[COATS[v].id] || {};
@@ -825,23 +879,16 @@ details p { margin: 6px 0 0; color: var(--muted); }
       row.className = "cat-row" + (w ? "" : " off");
       row.innerHTML = '<img alt="" width="56" height="56"><b></b><select></select>';
       row.querySelector("img").src = catSrc(v, 1);
-      var sel = row.querySelector("select");
       row.querySelector("b").textContent = k.name;
+      var sel = row.querySelector("select");
       sel.setAttribute("aria-label", k.name + " 등장 빈도");
       FREQ.forEach(function (f) { var o = document.createElement("option"); o.value = f[0]; o.textContent = f[1]; if (f[0] === w) o.selected = true; sel.appendChild(o); });
       sel.addEventListener("change", function () { setPref(v, "w", +sel.value); row.classList.toggle("off", !+sel.value); });
       catList.appendChild(row);
     });
   }
-  function closeCats() {
-    catSet.hidden = true; app.classList.remove("picking");
-    if (catsDirty) { catsDirty = false; loadStage(level.stage); }
-    window.scrollTo(0, 0);
-  }
-  $("btnCats").addEventListener("click", function () {
-    drawCatList(); app.classList.add("picking"); catSet.hidden = false; window.scrollTo(0, 0);
-  });
-  $("btnCatsBack").addEventListener("click", closeCats);
+  $("btnCats").addEventListener("click", function () { drawCatList(); openOverlay(catSet); });
+  $("btnCatsBack").addEventListener("click", closeOverlay);
   $("btnCatsReset").addEventListener("click", function () { delete saved.cats; persist(); catsDirty = true; drawCatList(); });
 
   $("optArrows").addEventListener("change", function (e) {
@@ -849,24 +896,9 @@ details p { margin: 6px 0 0; color: var(--muted); }
     room.classList.toggle("no-arrows", !saved.arrows);
   });
 
-  var GEN = 3;   // 생성 규칙이 바뀌면 올린다. 열려 있던 화면의 진행 상태를 새 판에 잘못 얹지 않기 위함.
-  function start(data) {
-    data = data || {};
-    var same = data.gen === GEN;
-    $("optArrows").checked = saved.arrows !== false;
-    room.classList.toggle("no-arrows", saved.arrows === false);
-    loadStage(data.stage || saved.stage || 1, same ? data.gone : null, same ? data.bumps : 0);
-  }
-  var hot = window.claude && window.claude.hot;
-  try {
-    if (hot && hot.snapshot) hot.snapshot(function () {
-      return {
-        gen: GEN, stage: level.stage, bumps: bumps,
-        gone: level.cats.filter(function (c) { return !c.alive; }).map(function (c) { return c.id; })
-      };
-    });
-  } catch (e) {}
-  if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+  $("optArrows").checked = saved.arrows !== false;
+  room.classList.toggle("no-arrows", saved.arrows === false);
+  loadLevel(saved.cfg.s ? saved.cfg : { n: saved.cfg.n, d: saved.cfg.d, s: randomSeed() });
 })();
 </script>
 </body>
