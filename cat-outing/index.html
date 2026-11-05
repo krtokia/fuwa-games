@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>고양이 나들이</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
+<style>
+/* 배치: 한 줄 세로 흐름. 제목 → 장판 깔린 방(격자) → 큰 버튼. 방 안의 고양이만 색이 강하고 나머지는 조용하게. */
+:root {
+  --ground: #dce6d6;      /* 마당 */
+  --panel: #f4f7ef;
+  --ink: #1d2b26;
+  --muted: #4b5c54;
+  --floor: #e8c56c;       /* 노란 장판 */
+  --floor-line: #cfa647;
+  --sill: #7a5a2b;        /* 문틀 */
+  --btn: #1f5a4c;
+  --btn-ink: #ffffff;
+  --line: #9fb3a6;
+  --hint: #ffffff;
+  --star: #d99a00;
+  --star-off: #b9c4bb;
+  --bubble: #ffffff;
+  --bubble-ink: #1d2b26;
+  --focus: #0b57d0;
+  --display: "Jua", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --body: "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #16201c; --panel: #202d28; --ink: #eef3ea; --muted: #b4c2b8;
+    --floor: #94793a; --floor-line: #78622d; --sill: #4a3719;
+    --btn: #7fd1b9; --btn-ink: #0f201b; --line: #4c5f55; --hint: #fff6c9;
+    --star: #ffcf4a; --star-off: #4c5f55; --bubble: #fdfdf8; --bubble-ink: #1d2b26;
+    --focus: #9cc2ff; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #16201c; --panel: #202d28; --ink: #eef3ea; --muted: #b4c2b8;
+  --floor: #94793a; --floor-line: #78622d; --sill: #4a3719;
+  --btn: #7fd1b9; --btn-ink: #0f201b; --line: #4c5f55; --hint: #fff6c9;
+  --star: #ffcf4a; --star-off: #4c5f55; --bubble: #fdfdf8; --bubble-ink: #1d2b26;
+  --focus: #9cc2ff; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 19px;
+  line-height: 1.5;
+  padding-block: 18px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.app {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 0;
+}
+.stage-no {
+  font-family: var(--display);
+  font-size: 24px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 18px;
+  white-space: nowrap;
+}
+.how { margin: 0; color: var(--muted); font-size: 19px; }
+
+/* 방 */
+.room {
+  width: min(100%, max(250px, calc(100dvh - 400px)));
+  margin: 0 auto;
+  background: var(--sill);
+  border-radius: 18px;
+  padding: 10px;
+}
+.stage { position: relative; aspect-ratio: 1; }
+.floor {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background:
+    linear-gradient(to right, var(--floor-line) 2px, transparent 2px) 0 0 / calc(100% / var(--n)) 100%,
+    linear-gradient(to bottom, var(--floor-line) 2px, transparent 2px) 0 0 / 100% calc(100% / var(--n)),
+    var(--floor);
+}
+.fx { position: absolute; inset: 0; pointer-events: none; }
+
+.cat {
+  position: absolute;
+  width: calc(var(--w) * 100% / var(--n));
+  height: calc(var(--h) * 100% / var(--n));
+  left: calc(var(--c) * 100% / var(--n));
+  top: calc(var(--r) * 100% / var(--n));
+  transform: translate(calc(var(--dx, 0) * 100% / var(--w)), calc(var(--dy, 0) * 100% / var(--h)));
+  transition: transform 0ms linear;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  border-radius: 14px;
+}
+.furn {
+  position: absolute;
+  width: calc(100% / var(--n));
+  height: calc(100% / var(--n));
+  left: calc(var(--c) * 100% / var(--n));
+  top: calc(var(--r) * 100% / var(--n));
+}
+.furn svg { display: block; width: 88%; height: 88%; margin: 6%; }
+.cat:focus-visible { outline: 4px solid var(--focus); outline-offset: -4px; }
+.cat .rot { position: absolute; left: 50%; top: 50%; display: block; }
+.cat svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.cat.walking svg { animation: waddle 0.22s ease-in-out infinite alternate; }
+.cat.bumped svg { animation: shake 0.4s ease-in-out; }
+.cat.hint::after {
+  content: "";
+  position: absolute; inset: 3%;
+  border: 5px solid var(--hint);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px var(--btn);
+  animation: pulse 0.8s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.no-arrows .arrow { display: none; }
+@keyframes waddle { from { transform: rotate(-4deg); } to { transform: rotate(4deg); } }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-7%); }
+  75% { transform: translateX(7%); }
+}
+@keyframes pulse { from { transform: scale(0.92); } to { transform: scale(1.06); } }
+
+.bubble {
+  position: absolute;
+  transform: translate(-50%, -85%);
+  background: var(--bubble);
+  color: var(--bubble-ink);
+  font-family: var(--display);
+  font-size: 22px;
+  padding: 2px 14px;
+  border-radius: 999px;
+  border: 2px solid var(--bubble-ink);
+  white-space: nowrap;
+  z-index: 3;
+}
+
+.win {
+  position: absolute; inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 12px;
+  z-index: 4;
+}
+.win h2 {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(24px, 7vw, 34px);
+  margin: 0;
+  color: #2a221c;
+  text-wrap: balance;
+}
+.win p { margin: 0; color: #2a221c; font-size: 19px; }
+.stars { font-size: 46px; line-height: 1; letter-spacing: 6px; }
+.stars .on { color: #fff8dc; text-shadow: 0 0 0 #2a221c, 0 2px 0 #2a221c, 2px 0 0 #2a221c, -2px 0 0 #2a221c, 0 -2px 0 #2a221c; }
+.stars .off { color: rgba(42, 34, 28, 0.28); }
+
+.status {
+  display: flex;
+  justify-content: center;
+  gap: 8px 22px;
+  flex-wrap: wrap;
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+.status b { font-family: var(--display); font-weight: 400; font-size: 24px; }
+
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+button.big, button.small {
+  font-family: var(--display);
+  border-radius: 16px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button.big {
+  min-height: 62px;
+  font-size: 24px;
+  background: var(--btn);
+  color: var(--btn-ink);
+  border: 0;
+}
+button.big.quiet, button.small {
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+button.small { min-height: 52px; font-size: 20px; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.big:focus-visible, button.small:focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; }
+.win button.big { background: #1f5a4c; color: #ffffff; padding: 0 28px; margin-top: 6px; }
+
+.row.three { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.row.three button.small { font-size: 19px; padding: 0 4px; }
+.app.picking > :not(.top):not(#picker) { display: none; }
+#picker { display: flex; flex-direction: column; gap: 4px; }
+.picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.picker-head h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0; }
+.picker-head button.small { padding: 0 22px; }
+#pickerList h3 { font-family: var(--display); font-weight: 400; font-size: 20px; color: var(--muted); margin: 16px 0 8px; }
+.pick-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+button.pick {
+  min-height: 68px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  font-family: var(--display);
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 0;
+}
+button.pick .num { font-size: 24px; line-height: 1; }
+button.pick .st { font-size: 13px; letter-spacing: 1px; line-height: 1; color: var(--star-off); }
+button.pick .st .got { color: var(--star); }
+button.pick[aria-current="true"] { border-color: var(--btn); border-width: 4px; }
+button.pick:focus-visible { outline: 4px solid var(--focus); outline-offset: 2px; }
+
+.opt { display: flex; align-items: center; gap: 10px; font-size: 19px; }
+.opt input { width: 26px; height: 26px; accent-color: var(--btn); }
+
+details {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 16px;
+  font-size: 17px;
+}
+summary { cursor: pointer; font-family: var(--display); font-size: 19px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 10px 0 6px; font-variant-numeric: tabular-nums; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+details p { margin: 6px 0 0; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cat.walking svg, .cat.bumped svg, .cat.hint::after { animation: none; }
+}
+</style>
+</head>
+<body>
+<main class="app">
+  <div class="top">
+    <h1>고양이 나들이</h1>
+    <div class="stage-no" id="stageNo">1번째 판</div>
+  </div>
+  <p class="how">고양이를 누르면 보는 쪽으로 걸어 나가요. 가구는 못 지나가요. 모두 밖으로 내보내 주세요.</p>
+
+  <div class="room" id="room">
+    <div class="stage">
+      <div class="floor" id="floor"></div>
+      <div class="fx" id="fx"></div>
+      <div class="win" id="win" hidden>
+        <div class="stars" id="stars" aria-hidden="true"></div>
+        <h2>모두 나들이 갔어요!</h2>
+        <p id="winMsg"></p>
+        <button type="button" class="big" id="btnWinNext">다음 판으로</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status" aria-live="polite">
+    <span>남은 고양이 <b id="left">0</b>마리</span>
+    <span>부딪힘 <b id="bumps">0</b>번</span>
+  </div>
+
+  <div class="row">
+    <button type="button" class="big" id="btnHint">힌트 보기</button>
+    <button type="button" class="big quiet" id="btnRetry">처음부터 다시</button>
+  </div>
+  <div class="row three">
+    <button type="button" class="small" id="btnPrev">◀ 이전 판</button>
+    <button type="button" class="small" id="btnPick">판 고르기</button>
+    <button type="button" class="small" id="btnNext">다음 판 ▶</button>
+  </div>
+
+  <label class="opt"><input type="checkbox" id="optArrows" checked> 고양이 등에 방향 화살표 보이기</label>
+
+  <details id="info">
+    <summary>이 판의 난이도 (조정용)</summary>
+    <dl>
+      <dt>판 크기</dt><dd id="iSize"></dd>
+      <dt>고양이</dt><dd id="iCats"></dd>
+      <dt>가구</dt><dd id="iFurn"></dd>
+      <dt>채운 칸</dt><dd id="iFill"></dd>
+      <dt>처음부터 나갈 수 있는 고양이</dt><dd id="iFree"></dd>
+      <dt>막힘이 꼬인 깊이</dt><dd id="iDepth"></dd>
+    </dl>
+    <p>판 번호가 같으면 누가 해도 같은 판이 나와요. 순서를 틀려도 막히는 일은 없어요.</p>
+  </details>
+
+  <section id="picker" hidden>
+    <div class="picker-head">
+      <h2>판 고르기</h2>
+      <button type="button" class="small" id="btnBack">돌아가기</button>
+    </div>
+    <div id="pickerList"></div>
+  </section>
+</main>
+
+<script>
+/*
+ * 고양이 나들이 — 프로토타입 v1
+ *
+ * [v2 메모: 대기석 방식]
+ *  - 나간 고양이가 바로 사라지지 않고 화면 아래 대기석(예: 5칸)에 앉는다.
+ *  - 같은 털색 3마리가 대기석에 모이면 그때 함께 사라진다.
+ *  - 대기석이 꽉 찼는데 3마리가 안 맞으면 그 판은 실패 → 누르는 순서가 진짜로 중요해진다.
+ *  - 생성기는 "거꾸로 넣기"를 그대로 쓰되, 나가는 순서대로 색을 3마리씩 묶어 배정하고
+ *    대기석 용량 안에서 풀리는지 시뮬레이션으로 검증해야 한다.
+ *  - v1 규칙(부딪혀도 벌칙 없음, 막다른 길 없음)은 입문 모드로 남겨둘 수 있다.
+ */
+(function () {
+  "use strict";
+
+  /* ---------- 규칙과 스테이지 생성 (화면과 무관한 순수 로직) ---------- */
+  var DIRS = [
+    { dr: -1, dc: 0, deg: 0, name: "위쪽" },
+    { dr: 0, dc: 1, deg: 90, name: "오른쪽" },
+    { dr: 1, dc: 0, deg: 180, name: "아래쪽" },
+    { dr: 0, dc: -1, deg: 270, name: "왼쪽" }
+  ];
+  // 난이도 조절은 이 표만 고치면 된다.
+  //  fill: 판에서 채우는 칸 비율(가구 포함)   long: 긴 고양이가 나올 확률   maxLen: 가장 긴 고양이 칸 수
+  //  furn: 가구 개수   maxW: 막힘 꼬임 상한(채우다 모자라면 넘을 수 있음)   p: 남의 길을 막는 자리에 놓을 확률
+  //  picks: 조건을 채운 판을 이만큼 만들어 보고 그중 가장 어려운 판을 고른다 (클수록 기본 난이도가 올라감)
+  var TIERS = [
+    { from: 1, to: 2, size: 3, fill: [0.34, 0.56], long: [0, 0], maxLen: 1, furn: [0, 0], maxW: [1, 2], p: [0, 0.5], picks: 1 },
+    { from: 3, to: 6, size: 4, fill: [0.6, 0.82], long: [0, 0.2], maxLen: 2, furn: [0, 0], maxW: [2, 5], p: [0.5, 0.8], picks: 3 },
+    { from: 7, to: 14, size: 5, fill: [0.76, 0.9], long: [0.2, 0.3], maxLen: 2, furn: [0, 1], maxW: [4, 8], p: [0.65, 0.88], picks: 5 },
+    { from: 15, to: 30, size: 6, fill: [0.84, 0.93], long: [0.25, 0.35], maxLen: 3, furn: [1, 2], maxW: [6, 12], p: [0.75, 0.92], picks: 6 },
+    { from: 31, to: 60, size: 7, fill: [0.86, 0.94], long: [0.3, 0.4], maxLen: 3, furn: [2, 3], maxW: [8, 16], p: [0.85, 0.95], picks: 6 }
+  ];
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function lerp(ab, t) { return ab[0] + (ab[1] - ab[0]) * t; }
+
+  function stageParams(s) {
+    var tier = TIERS[TIERS.length - 1];
+    for (var i = 0; i < TIERS.length; i++) { if (s <= TIERS[i].to) { tier = TIERS[i]; break; } }
+    var t = Math.min(1, (s - tier.from) / Math.max(1, tier.to - tier.from));
+    var fill = lerp(tier.fill, t);
+    return {
+      size: tier.size,
+      target: Math.round(fill * tier.size * tier.size),
+      tight: fill,
+      long: lerp(tier.long, t),
+      maxLen: tier.maxLen,
+      furn: Math.round(lerp(tier.furn, t)),
+      maxW: Math.round(lerp(tier.maxW, t)),
+      p: lerp(tier.p, t),
+      picks: tier.picks
+    };
+  }
+
+  // 머리 (r,c)에서 d 방향으로 벽까지: 막힘 없으면 칸 수, 막히면 -1
+  function clearLen(grid, n, r, c, d) {
+    var len = 0, rr = r + DIRS[d].dr, cc = c + DIRS[d].dc;
+    while (rr >= 0 && rr < n && cc >= 0 && cc < n) {
+      if (grid[rr * n + cc] !== -1) return -1;
+      len++; rr += DIRS[d].dr; cc += DIRS[d].dc;
+    }
+    return len;
+  }
+
+  // 빈 판에 고양이를 거꾸로 하나씩 넣는다. 넣는 순간 자기 길이 비어 있어야 하므로
+  // 넣은 순서의 역순으로 빼면 반드시 풀린다. 가구는 먼저 놓아서 어떤 길도 가구를 지나지 않게 한다.
+  function attempt(stage, P, a) {
+    var n = P.size, rnd = mulberry32(stage * 7919 + 13 + a * 104729);
+    var grid = new Array(n * n).fill(-1);      // -1 빈칸, -2 가구, 0 이상 고양이 번호
+    var coverW = new Array(n * n).fill(0);     // 이 칸을 지나가야 하는 고양이들의 꼬임 높이 최댓값
+    var cats = [], furn = [], filled = 0, i;
+
+    for (i = 0; i < P.furn; i++) {
+      for (var tries = 0; tries < 20; tries++) {
+        var fr = Math.floor(rnd() * n), fc = Math.floor(rnd() * n);
+        if (grid[fr * n + fc] !== -1) continue;
+        grid[fr * n + fc] = -2;
+        furn.push({ r: fr, c: fc, kind: Math.floor(rnd() * 2) });
+        filled++;
+        break;
+      }
+    }
+
+    while (filled < P.target) {
+      var cands = [], optCount = new Array(n * n).fill(0);
+      for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+        if (grid[r * n + c] !== -1) continue;
+        for (var d = 0; d < 4; d++) {
+          var len = clearLen(grid, n, r, c, d);
+          if (len < 0) continue;
+          optCount[r * n + c]++;
+          var w = 1, blocks = 0;
+          for (var L = 1; L <= P.maxLen; L++) {
+            var rr = r - DIRS[d].dr * (L - 1), cc = c - DIRS[d].dc * (L - 1);
+            if (rr < 0 || rr >= n || cc < 0 || cc >= n || grid[rr * n + cc] !== -1) break;
+            if (filled + L > P.target + 1) break;
+            var cw = coverW[rr * n + cc];
+            if (cw) { blocks++; if (cw + 1 > w) w = cw + 1; }
+            cands.push({ r: r, c: c, d: d, L: L, w: w, blocks: blocks, len: len });
+          }
+        }
+      }
+      if (!cands.length) break;
+
+      // 난수는 항상 같은 개수만큼 뽑아야 판이 번호마다 고정된다.
+      var wantLen = rnd() < P.long ? (P.maxLen >= 3 && rnd() < 0.3 ? 3 : 2) : (rnd(), 1);
+      var tight = rnd() < P.tight, wantBlock = rnd() < P.p, deepFirst = rnd() < 0.6, preferLong = rnd() < 0.85;
+      var pool = cands;
+      var narrow = function (fn) { var f = pool.filter(fn); if (f.length) pool = f; };
+      narrow(function (x) { return x.L === wantLen; });
+      if (tight) {   // 나갈 길이 적게 남은 칸부터 채워야 판이 빽빽하게 찬다
+        var min = 9;
+        pool.forEach(function (x) { var o = optCount[x.r * n + x.c]; if (o < min) min = o; });
+        narrow(function (x) { return optCount[x.r * n + x.c] === min; });
+      }
+      narrow(function (x) { return x.w <= P.maxW; });
+      if (wantBlock) {
+        narrow(function (x) { return x.blocks > 0; });
+        if (deepFirst) {
+          var top = 0;
+          pool.forEach(function (x) { if (x.w > top) top = x.w; });
+          narrow(function (x) { return x.w === top; });
+        }
+      } else {
+        narrow(function (x) { return x.blocks === 0; });
+      }
+      if (preferLong) narrow(function (x) { return x.len > 0; });
+
+      var pick = pool[Math.floor(rnd() * pool.length)], id = cats.length;
+      for (i = 0; i < pick.L; i++) grid[(pick.r - DIRS[pick.d].dr * i) * n + (pick.c - DIRS[pick.d].dc * i)] = id;
+      filled += pick.L;
+      var pr = pick.r + DIRS[pick.d].dr, pc = pick.c + DIRS[pick.d].dc;
+      while (pr >= 0 && pr < n && pc >= 0 && pc < n) {
+        if (coverW[pr * n + pc] < pick.w) coverW[pr * n + pc] = pick.w;
+        pr += DIRS[pick.d].dr; pc += DIRS[pick.d].dc;
+      }
+      cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: Math.floor(rnd() * 6), alive: true });
+    }
+    return { stage: stage, n: n, cats: cats, furn: furn, filled: filled, target: P.target };
+  }
+
+  // 목표 칸 수를 채운 판을 picks개 만들어 보고, 그중 가장 어려운 판을 고른다.
+  // 어려움 점수: 꼬임이 깊을수록, 처음부터 나갈 수 있는 고양이 비율이 낮을수록 높다.
+  function generate(stage) {
+    var P = stageParams(stage), best = null, bestScore = -1e9, full = 0;
+    for (var a = 0; a < 60; a++) {
+      var lv = attempt(stage, P, a), info = analyze(lv), ok = lv.filled >= P.target;
+      var score = (ok ? 1000 : lv.filled) + info.depth - 10 * info.free / Math.max(1, info.total);
+      if (score > bestScore) { best = lv; bestScore = score; }
+      if (ok && ++full >= P.picks) break;
+    }
+    return best;
+  }
+
+  // 지금 판의 칸 점유표: 고양이 객체, 가구는 "F", 빈칸은 null
+  function occupancy(level) {
+    var n = level.n, g = new Array(n * n).fill(null);
+    level.furn.forEach(function (f) { g[f.r * n + f.c] = "F"; });
+    level.cats.forEach(function (o) {
+      if (!o.alive) return;
+      for (var i = 0; i < o.L; i++) g[(o.r - DIRS[o.d].dr * i) * n + (o.c - DIRS[o.d].dc * i)] = o;
+    });
+    return g;
+  }
+  // 머리 앞에서 가장 먼저 만나는 것. 없으면 null
+  function firstBlocker(level, cat, g) {
+    g = g || occupancy(level);
+    var n = level.n, r = cat.r + DIRS[cat.d].dr, c = cat.c + DIRS[cat.d].dc, dist = 1;
+    while (r >= 0 && r < n && c >= 0 && c < n) {
+      var o = g[r * n + c];
+      if (o) return { cat: o === "F" ? null : o, r: r, c: c, dist: dist };
+      r += DIRS[cat.d].dr; c += DIRS[cat.d].dc; dist++;
+    }
+    return null;
+  }
+
+  function analyze(level) {
+    var n = level.n, g = occupancy(level), memo = {};
+    function layer(cat) {
+      if (memo[cat.id] != null) return memo[cat.id];
+      var Lv = 0, r = cat.r + DIRS[cat.d].dr, c = cat.c + DIRS[cat.d].dc;
+      while (r >= 0 && r < n && c >= 0 && c < n) {
+        var o = g[r * n + c];
+        if (o && o !== "F") Lv = Math.max(Lv, layer(o) + 1);
+        r += DIRS[cat.d].dr; c += DIRS[cat.d].dc;
+      }
+      return (memo[cat.id] = Lv);
+    }
+    var free = 0, depth = 0, total = 0, long = 0;
+    level.cats.forEach(function (c) {
+      if (!c.alive) return;
+      total++; if (c.L > 1) long++;
+      var Lv = layer(c);
+      if (Lv === 0) free++;
+      if (Lv > depth) depth = Lv;
+    });
+    return { total: total, long: long, free: free, depth: depth };
+  }
+
+  window.CatOuting = { generate: generate, analyze: analyze, firstBlocker: firstBlocker };
+
+  /* ---------- 고양이·가구 그리기 (나중에 일러스트로 갈아 끼울 부분) ---------- */
+  var OUT = "#2a221c";
+  var COATS = [
+    { name: "치즈", fur: "#f0a045", mark: "#c9742a", eye: OUT, kind: "tabby" },
+    { name: "고등어", fur: "#a3acb1", mark: "#626b70", eye: OUT, kind: "tabby" },
+    { name: "까만", fur: "#3d3836", mark: "#3d3836", eye: "#f2c94c", kind: "plain" },
+    { name: "하얀", fur: "#f7f3ea", mark: "#f7f3ea", eye: OUT, kind: "plain" },
+    { name: "삼색", fur: "#f7f3ea", mark: "#f0a045", eye: OUT, kind: "calico" },
+    { name: "크림", fur: "#ecd9b0", mark: "#c4a56c", eye: OUT, kind: "tabby" }
+  ];
+  // 위를 보는 고양이. L칸짜리면 몸통만 뒤로 늘어난다.
+  function catSVG(v, L) {
+    var k = COATS[v], f = k.fur, ext = (L - 1) * 100, y;
+    var s = ' stroke="' + OUT + '" stroke-width="3" stroke-linejoin="round"';
+    var marks = "";
+    if (k.kind === "tabby") {
+      var d = "";
+      for (y = 50; y <= 72 + ext; y += 11) d += "M39 " + y + " Q50 " + (y - 6) + " 61 " + y + " ";
+      marks = '<path d="' + d + '" fill="none" stroke="' + k.mark + '" stroke-width="4" stroke-linecap="round"/>';
+    } else if (k.kind === "calico") {
+      var flip = 0;
+      for (y = 52; y <= 72 + ext; y += 26) {
+        marks += '<circle cx="' + (flip % 2 ? 59 : 41) + '" cy="' + y + '" r="8.5" fill="' + (flip % 2 ? "#3d3836" : "#f0a045") + '"/>';
+        flip++;
+      }
+    }
+    var headMark = k.kind === "calico" ? '<circle cx="59" cy="31" r="8" fill="#f0a045"/><circle cx="41" cy="35" r="6" fill="#3d3836"/>' : "";
+    return '<svg viewBox="0 0 100 ' + (100 * L) + '" aria-hidden="true">' +
+      '<g transform="translate(0 ' + ext + ')">' +
+      '<path d="M50 82 C50 98 74 98 74 84" fill="none" stroke="' + OUT + '" stroke-width="12" stroke-linecap="round"/>' +
+      '<path d="M50 82 C50 98 74 98 74 84" fill="none" stroke="' + f + '" stroke-width="6.5" stroke-linecap="round"/>' +
+      '<ellipse cx="30" cy="74" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
+      '<ellipse cx="70" cy="74" rx="6" ry="8" fill="' + f + '"' + s + '/></g>' +
+      '<ellipse cx="29" cy="46" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
+      '<ellipse cx="71" cy="46" rx="6" ry="8" fill="' + f + '"' + s + '/>' +
+      '<rect x="27" y="33" width="46" height="' + (54 + ext) + '" rx="23" fill="' + f + '"' + s + '/>' + marks +
+      '<path d="M33 25 L35 5 L49 14 Z" fill="' + f + '"' + s + '/>' +
+      '<path d="M67 25 L65 5 L51 14 Z" fill="' + f + '"' + s + '/>' +
+      '<circle cx="50" cy="30" r="19" fill="' + f + '"' + s + '/>' + headMark +
+      '<circle cx="42" cy="25" r="2.8" fill="' + k.eye + '"/><circle cx="58" cy="25" r="2.8" fill="' + k.eye + '"/>' +
+      '<path d="M46.5 15 h7 l-3.5 4.5 z" fill="#e07f86"/>' +
+      '<g class="arrow"><circle cx="50" cy="62" r="14" fill="#ffffff" stroke="' + OUT + '" stroke-width="2.5"/>' +
+      '<path d="M50 51 L60 64 H54 V72 H46 V64 H40 Z" fill="' + OUT + '"/></g>' +
+      "</svg>";
+  }
+  function furnSVG(kind) {
+    if (kind === 0) {   // 화분
+      var leaves = "";
+      for (var a = 0; a < 360; a += 60) {
+        leaves += '<ellipse cx="50" cy="27" rx="11" ry="22" fill="' + (a % 120 ? "#3f8a4c" : "#5aa85f") + '" stroke="' + OUT + '" stroke-width="2.5" transform="rotate(' + a + ' 50 50)"/>';
+      }
+      return '<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="34" fill="#b5653a" stroke="' + OUT + '" stroke-width="3"/>' +
+        leaves + '<circle cx="50" cy="50" r="7" fill="#2f6b3a"/></svg>';
+    }
+    // 상자
+    return '<svg viewBox="0 0 100 100" aria-hidden="true"><rect x="10" y="10" width="80" height="80" rx="6" fill="#b98852" stroke="' + OUT + '" stroke-width="3"/>' +
+      '<rect x="41" y="10" width="18" height="80" fill="#e3c79c"/><path d="M10 50 H90" stroke="' + OUT + '" stroke-width="2.5"/>' +
+      '<rect x="10" y="10" width="80" height="80" rx="6" fill="none" stroke="' + OUT + '" stroke-width="3"/></svg>';
+  }
+
+  /* ---------- 화면 ---------- */
+  var $ = function (id) { return document.getElementById(id); };
+  var room = $("room"), floor = $("floor"), fx = $("fx"), win = $("win");
+  var KEY = "cat-outing.v1";
+  var saved = { stage: 1, best: {}, arrows: true };
+  try { var raw = JSON.parse(localStorage.getItem(KEY)); if (raw && typeof raw === "object") saved = Object.assign(saved, raw); } catch (e) {}
+  function persist() { try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {} }
+
+  var level = null, bumps = 0, hintTimer = 0;
+  var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function wait(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+  function move(el, dx, dy, ms) {
+    el.style.transitionDuration = ms + "ms";
+    el.style.setProperty("--dx", dx);
+    el.style.setProperty("--dy", dy);
+    return wait(ms + 20);
+  }
+
+  function loadStage(stage, gone, keptBumps) {
+    level = generate(Math.max(1, stage));
+    bumps = keptBumps || 0;
+    var info = analyze(level), n = level.n;
+    (gone || []).forEach(function (id) { if (level.cats[id]) level.cats[id].alive = false; });
+    saved.stage = level.stage; persist();
+
+    $("iSize").textContent = n + " × " + n + "칸";
+    $("iCats").textContent = info.total + "마리" + (info.long ? " (긴 고양이 " + info.long + "마리)" : "");
+    $("iFurn").textContent = level.furn.length ? level.furn.length + "개" : "없음";
+    $("iFill").textContent = level.filled + " / " + (n * n) + "칸";
+    $("iFree").textContent = info.free + "마리";
+    $("iDepth").textContent = info.depth === 0 ? "없음 (전부 바로 나감)" : info.depth + "겹";
+
+    room.style.setProperty("--n", n);
+    floor.innerHTML = ""; fx.innerHTML = ""; win.hidden = true;
+    level.furn.forEach(function (f) {
+      var el = document.createElement("div");
+      el.className = "furn";
+      el.style.setProperty("--r", f.r); el.style.setProperty("--c", f.c);
+      el.innerHTML = furnSVG(f.kind);
+      floor.appendChild(el);
+    });
+    level.cats.forEach(function (cat) {
+      if (!cat.alive) return;
+      var d = DIRS[cat.d], horiz = cat.d % 2 === 1;
+      var tailR = cat.r - d.dr * (cat.L - 1), tailC = cat.c - d.dc * (cat.L - 1);
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "cat";
+      b.style.setProperty("--r", Math.min(cat.r, tailR)); b.style.setProperty("--c", Math.min(cat.c, tailC));
+      b.style.setProperty("--w", horiz ? cat.L : 1); b.style.setProperty("--h", horiz ? 1 : cat.L);
+      b.setAttribute("aria-label", (cat.r + 1) + "째 줄 " + (cat.c + 1) + "째 칸, " + d.name + "을 보는 " + (cat.L > 1 ? "긴 " : "") + COATS[cat.v].name + " 고양이");
+      b.innerHTML = '<span class="rot" style="width:' + (horiz ? 100 / cat.L : 100) + "%;height:" + (horiz ? 100 * cat.L : 100) +
+        "%;transform:translate(-50%,-50%) rotate(" + d.deg + 'deg) scale(0.97)">' + catSVG(cat.v, cat.L) + "</span>";
+      b.addEventListener("click", function () { tap(cat); });
+      cat.el = b;
+      floor.appendChild(b);
+    });
+    $("stageNo").textContent = level.stage + "번째 판";
+    $("btnPrev").disabled = level.stage <= 1;
+    refresh();
+    if (!level.cats.some(function (c) { return c.alive; })) showWin();
+  }
+
+  function refresh() {
+    $("left").textContent = level.cats.filter(function (c) { return c.alive; }).length;
+    $("bumps").textContent = bumps;
+  }
+  function clearHint() {
+    clearTimeout(hintTimer);
+    level.cats.forEach(function (c) { if (c.el) c.el.classList.remove("hint"); });
+  }
+
+  function tap(cat) {
+    if (!cat.alive || cat.busy) return;
+    clearHint();
+    var d = DIRS[cat.d], hit = firstBlocker(level, cat), el = cat.el, mine = level;
+    var per = calm ? 0 : 110;
+    if (!hit) {
+      var edge = cat.d === 0 ? cat.r : cat.d === 1 ? level.n - 1 - cat.c : cat.d === 2 ? level.n - 1 - cat.r : cat.c;
+      var far = edge + cat.L + 0.3;
+      cat.alive = false; cat.busy = true;
+      el.classList.add("walking"); el.disabled = true;
+      refresh();
+      move(el, d.dc * far, d.dr * far, Math.max(calm ? 0 : 260, far * per)).then(function () {
+        el.remove();
+        if (mine === level && !level.cats.some(function (c) { return c.alive; })) showWin();
+      });
+      return;
+    }
+    bumps++; refresh();
+    cat.busy = true;
+    var dist = hit.dist - 1 + 0.3, ms = Math.max(calm ? 0 : 200, dist * per);
+    el.classList.add("walking");
+    move(el, d.dc * dist, d.dr * dist, ms).then(function () {
+      el.classList.remove("walking");
+      var other = hit.cat;
+      if (other && other.el && other.alive) {
+        other.el.classList.add("bumped");
+        setTimeout(function () { other.el.classList.remove("bumped"); }, 450);
+        var bub = document.createElement("div");
+        bub.className = "bubble"; bub.textContent = "야옹!";
+        bub.style.left = ((hit.c + 0.5) / mine.n * 100) + "%";
+        bub.style.top = (hit.r / mine.n * 100) + "%";
+        if (mine === level) fx.appendChild(bub);
+        setTimeout(function () { bub.remove(); }, 900);
+      }
+      return wait(calm ? 300 : 240);
+    }).then(function () {
+      return move(el, 0, 0, ms);
+    }).then(function () { cat.busy = false; });
+  }
+
+  function showWin() {
+    var stars = bumps === 0 ? 3 : bumps <= 2 ? 2 : 1;
+    if (!(saved.best[level.stage] >= stars)) { saved.best[level.stage] = stars; persist(); }
+    var html = "";
+    for (var i = 0; i < 3; i++) html += '<span class="' + (i < stars ? "on" : "off") + '">★</span>';
+    $("stars").innerHTML = html;
+    $("winMsg").textContent = bumps === 0 ? "한 번도 안 부딪혔어요." : bumps + "번 부딪혔지만 모두 내보냈어요.";
+    win.hidden = false;
+  }
+
+  $("btnHint").addEventListener("click", function () {
+    clearHint();
+    var g = occupancy(level);
+    var free = level.cats.filter(function (c) { return c.alive && !c.busy && !firstBlocker(level, c, g); });
+    if (!free.length) return;
+    free[0].el.classList.add("hint");
+    hintTimer = setTimeout(clearHint, 4000);
+  });
+  $("btnRetry").addEventListener("click", function () { loadStage(level.stage); });
+  $("btnPrev").addEventListener("click", function () { loadStage(level.stage - 1); });
+  $("btnNext").addEventListener("click", function () { loadStage(level.stage + 1); });
+  $("btnWinNext").addEventListener("click", function () { loadStage(level.stage + 1); });
+
+  /* ---------- 판 고르기 (시험판이라 전부 열려 있음) ---------- */
+  var app = document.querySelector(".app"), picker = $("picker"), pickerList = $("pickerList");
+  function closePicker() { picker.hidden = true; app.classList.remove("picking"); }
+  function openPicker() {
+    var html = "", last = Math.max(TIERS[TIERS.length - 1].to, Math.ceil(level.stage / 10) * 10);
+    TIERS.forEach(function (t, i) {
+      var to = i === TIERS.length - 1 ? last : t.to;
+      html += "<h3>" + t.size + " × " + t.size + "칸 (" + t.from + "~" + to + "판)</h3><div class=\"pick-grid\">";
+      for (var s = t.from; s <= to; s++) {
+        var got = saved.best[s] || 0, st = "";
+        for (var k = 0; k < 3; k++) st += k < got ? '<span class="got">★</span>' : "★";
+        html += '<button type="button" class="pick" data-s="' + s + '"' + (s === level.stage ? ' aria-current="true"' : "") +
+          ' aria-label="' + s + "번째 판, " + (got ? "별 " + got + "개" : "아직 안 깸") + '"><span class="num">' + s +
+          '</span><span class="st" aria-hidden="true">' + st + "</span></button>";
+      }
+      html += "</div>";
+    });
+    pickerList.innerHTML = html;
+    app.classList.add("picking"); picker.hidden = false;
+    var cur = pickerList.querySelector('[aria-current="true"]');
+    if (cur) { cur.scrollIntoView({ block: "center" }); cur.focus({ preventScroll: true }); }
+  }
+  $("btnPick").addEventListener("click", openPicker);
+  $("btnBack").addEventListener("click", closePicker);
+  pickerList.addEventListener("click", function (e) {
+    var b = e.target.closest("button.pick");
+    if (!b) return;
+    closePicker();
+    loadStage(+b.getAttribute("data-s"));
+    window.scrollTo(0, 0);
+  });
+  $("optArrows").addEventListener("change", function (e) {
+    saved.arrows = e.target.checked; persist();
+    room.classList.toggle("no-arrows", !saved.arrows);
+  });
+
+  var GEN = 3;   // 생성 규칙이 바뀌면 올린다. 열려 있던 화면의 진행 상태를 새 판에 잘못 얹지 않기 위함.
+  function start(data) {
+    data = data || {};
+    var same = data.gen === GEN;
+    $("optArrows").checked = saved.arrows !== false;
+    room.classList.toggle("no-arrows", saved.arrows === false);
+    loadStage(data.stage || saved.stage || 1, same ? data.gone : null, same ? data.bumps : 0);
+  }
+  var hot = window.claude && window.claude.hot;
+  try {
+    if (hot && hot.snapshot) hot.snapshot(function () {
+      return {
+        gen: GEN, stage: level.stage, bumps: bumps,
+        gone: level.cats.filter(function (c) { return !c.alive; }).map(function (c) { return c.id; })
+      };
+    });
+  } catch (e) {}
+  if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>
+</body>
+</html>

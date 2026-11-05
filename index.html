@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>후와 게임</title>
+<meta name="description" content="고양이 후와네 작은 게임들">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
+<style>
+:root {
+  --bg: #f3ecdf; --card: #fffaf1; --ink: #2a221c; --muted: #6d6056; --line: #e2d5c2; --accent: #1f5a4c;
+  --display: "Jua", "Apple SD Gothic Neo", sans-serif;
+  --body: "Gowun Dodum", "Apple SD Gothic Neo", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #16120f; --card: #221c17; --ink: #f3ebe1; --muted: #a89c8f; --line: #362c24; --accent: #7fd1b9; }
+}
+:root[data-theme="dark"] { --bg: #16120f; --card: #221c17; --ink: #f3ebe1; --muted: #a89c8f; --line: #362c24; --accent: #7fd1b9; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.5; }
+main { width: min(720px, 100% - 32px); margin: 0 auto; padding: 48px 0 64px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; margin: 0; }
+.sub { color: var(--muted); margin: 4px 0 32px; }
+.games { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
+.game { display: block; background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 14px; color: inherit; text-decoration: none; transition: transform .2s, border-color .2s; }
+.game:hover, .game:focus-visible { transform: translateY(-4px); border-color: var(--accent); outline: none; }
+.game .thumb { aspect-ratio: 1; border-radius: 14px; background: #e8c56c; display: grid; place-items: center; overflow: hidden; }
+.game .thumb img { width: 70%; height: 70%; object-fit: contain; }
+.game b { display: block; font-family: var(--display); font-weight: 400; font-size: 1.35rem; margin-top: 10px; }
+.game span { color: var(--muted); font-size: .92rem; }
+footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>후와 게임</h1>
+  <p class="sub">고양이 후와네 작은 게임들</p>
+  <div class="games">
+    <a class="game" href="/cat-outing/">
+      <div class="thumb"><img src="/cat-outing/cats/01-1.webp" alt="" width="320" height="320"></div>
+      <b>고양이 나들이</b>
+      <span>고양이를 눌러 방 밖으로 내보내는 퍼즐</span>
+    </a>
+  </div>
+  <footer><a href="https://fuwa.dad/">← 후와 홈</a></footer>
+</main>
+</body>
+</html>
