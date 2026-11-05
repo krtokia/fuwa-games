@@ -294,6 +294,23 @@ dt { color: var(--muted); }
 dd { margin: 0; }
 details p { margin: 6px 0 0; color: var(--muted); }
 
+/* 폰: 판을 화면 너비 끝까지. 높이로 줄이지 않는다(사파리 주소창 때문에 dvh 가 작아 판이 쪼그라들었음) */
+@media (max-width: 600px) {
+  body {
+    font-size: 17px;
+    padding-block: 10px 24px;
+    padding-left: max(6px, env(safe-area-inset-left, 0px));
+    padding-right: max(6px, env(safe-area-inset-right, 0px));
+  }
+  .app { gap: 10px; }
+  .top, .how, .status, .row, .opt, details, #btnCats, #picker, #catSet { margin-inline: 4px; }
+  h1 { font-size: 26px; }
+  .stage-no { font-size: 20px; padding: 2px 14px; }
+  .how { font-size: 15px; }
+  .room { width: 100%; padding: 5px; border-radius: 12px; }
+  .floor { border-radius: 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cat.walking .body, .cat.bumped .body, .cat.hint::after { animation: none; }
 }
