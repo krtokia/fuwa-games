@@ -238,7 +238,18 @@ button.big:focus-visible, button.small:focus-visible { outline: 4px solid var(--
 
 .row.three { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .row.three button.small { font-size: 19px; padding: 0 4px; }
-.app.picking > :not(.top):not(#picker) { display: none; }
+.app.picking > :not(.top):not(#picker):not(#catSet) { display: none; }
+#catSet { display: flex; flex-direction: column; gap: 10px; }
+#catSet .note { margin: 0; color: var(--muted); font-size: 17px; }
+.cat-row { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 6px 10px 6px 6px; }
+.cat-row img { width: 56px; height: 56px; border-radius: 10px; background: var(--floor); }
+.cat-row input, .cat-row select { font: inherit; font-size: 18px; color: var(--ink); background: var(--ground);
+  border: 2px solid var(--line); border-radius: 10px; padding: 6px 8px; min-width: 0; width: 100%; }
+.cat-row select { width: auto; }
+.cat-row input:focus-visible, .cat-row select:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+.cat-row.off img { opacity: .35; }
+button.small.wide { width: 100%; }
 #picker { display: flex; flex-direction: column; gap: 4px; }
 .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .picker-head h2 { font-family: var(--display); font-weight: 400; font-size: 26px; margin: 0; }
@@ -325,6 +336,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
   </div>
 
   <label class="opt"><input type="checkbox" id="optArrows" checked> 고양이 등에 방향 화살표 보이기</label>
+  <button type="button" class="small wide" id="btnCats">고양이 이름 · 등장 빈도</button>
 
   <details id="info">
     <summary>이 판의 난이도 (조정용)</summary>
@@ -338,6 +350,16 @@ details p { margin: 6px 0 0; color: var(--muted); }
     </dl>
     <p>판 번호가 같으면 누가 해도 같은 판이 나와요. 순서를 틀려도 막히는 일은 없어요.</p>
   </details>
+
+  <section id="catSet" hidden>
+    <div class="picker-head">
+      <h2>고양이 설정</h2>
+      <button type="button" class="small" id="btnCatsBack">돌아가기</button>
+    </div>
+    <p class="note">이름과 얼마나 자주 나올지 정해요. 이 기기에만 저장돼요. 판 모양은 그대로고 어떤 고양이가 나오는지만 바뀌어요.</p>
+    <div id="catList"></div>
+    <button type="button" class="small" id="btnCatsReset">기본값으로</button>
+  </section>
 
   <section id="picker" hidden>
     <div class="picker-head">
@@ -492,7 +514,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
         if (coverW[pr * n + pc] < pick.w) coverW[pr * n + pc] = pick.w;
         pr += DIRS[pick.d].dr; pc += DIRS[pick.d].dc;
       }
-      cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: Math.floor(rnd() * 8), alive: true });
+      cats.push({ id: id, r: pick.r, c: pick.c, d: pick.d, L: pick.L, v: pickCoat(rnd()), alive: true });
     }
     return { stage: stage, n: n, cats: cats, furn: furn, filled: filled, target: P.target };
   }
@@ -560,16 +582,29 @@ details p { margin: 6px 0 0; color: var(--muted); }
   /* ---------- 고양이·가구 그리기 ---------- */
   var OUT = "#2a221c";
   // 고양이 그림은 cats/<번호>-<칸수>.webp — 위를 보는 모습, 1칸이 정사각형이고 L칸이면 세로로 L배.
+  // 기본 이름과 등장 빈도(w: 0 안 나옴, 1 보통, 2 자주, 4 아주 자주). 사람마다 「고양이 설정」에서 바꿀 수 있다.
   var COATS = [
-    { id: "01", name: "회색 장모" },
-    { id: "02", name: "턱시도" },
-    { id: "03", name: "하얀 폴드" },
-    { id: "04", name: "고등어 아기" },
-    { id: "05", name: "러시안 블루" },
-    { id: "06", name: "샴" },
-    { id: "07", name: "졸린 폴드" },
-    { id: "08", name: "까만 모자" }
+    { id: "01", name: "후와", w: 2 },
+    { id: "02", name: "턱시도", w: 1 },
+    { id: "03", name: "하얀 폴드", w: 1 },
+    { id: "04", name: "고등어 아기", w: 1 },
+    { id: "05", name: "러시안 블루", w: 1 },
+    { id: "06", name: "샴", w: 1 },
+    { id: "07", name: "졸린 폴드", w: 1 },
+    { id: "08", name: "까만 모자", w: 1 }
   ];
+  var FREQ = [[0, "안 나옴"], [1, "보통"], [2, "자주"], [4, "아주 자주"]];
+  function catPref(v) { return (saved.cats && saved.cats[COATS[v].id]) || {}; }
+  function catName(v) { var n = catPref(v).name; return n != null && n !== "" ? n : COATS[v].name; }
+  function catWeight(v) { var w = catPref(v).w; return w != null ? w : COATS[v].w; }
+  // 난수 하나(0~1)를 빈도에 맞춰 고양이 번호로 바꾼다. 다 0이면 고르게.
+  function pickCoat(x) {
+    var ws = COATS.map(function (k, v) { return catWeight(v); }), sum = ws.reduce(function (a, b) { return a + b; }, 0);
+    if (!sum) { ws = ws.map(function () { return 1; }); sum = ws.length; }
+    x *= sum;
+    for (var v = 0; v < ws.length; v++) { if (x < ws[v]) return v; x -= ws[v]; }
+    return ws.length - 1;
+  }
   function catSrc(v, L) { return "cats/" + COATS[v].id + "-" + L + ".webp"; }
   COATS.forEach(function (k, v) { for (var L = 1; L <= 3; L++) new Image().src = catSrc(v, L); });   // 첫 판에서 깜빡이지 않게
   // 화살표는 예전 그림처럼 머리 칸의 62% 높이(등 위)에 둔다
@@ -643,7 +678,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
       b.type = "button"; b.className = "cat";
       b.style.setProperty("--r", Math.min(cat.r, tailR)); b.style.setProperty("--c", Math.min(cat.c, tailC));
       b.style.setProperty("--w", horiz ? cat.L : 1); b.style.setProperty("--h", horiz ? 1 : cat.L);
-      b.setAttribute("aria-label", (cat.r + 1) + "째 줄 " + (cat.c + 1) + "째 칸, " + d.name + "을 보는 " + (cat.L > 1 ? "긴 " : "") + COATS[cat.v].name + " 고양이");
+      b.setAttribute("aria-label", (cat.r + 1) + "째 줄 " + (cat.c + 1) + "째 칸, " + d.name + "을 보는 " + (cat.L > 1 ? "긴 " : "") + catName(cat.v) + " 고양이");
       b.innerHTML = '<span class="rot" style="width:' + (horiz ? 100 / cat.L : 100) + "%;height:" + (horiz ? 100 * cat.L : 100) +
         "%;transform:translate(-50%,-50%) rotate(" + d.deg + 'deg) scale(0.97)">' + catSVG(cat.v, cat.L) + "</span>";
       b.addEventListener("click", function () { tap(cat); });
@@ -693,7 +728,7 @@ details p { margin: 6px 0 0; color: var(--muted); }
         other.el.classList.add("bumped");
         setTimeout(function () { other.el.classList.remove("bumped"); }, 450);
         var bub = document.createElement("div");
-        bub.className = "bubble"; bub.textContent = "야옹!";
+        bub.className = "bubble"; bub.textContent = catName(other.v) + ": 야옹!";
         bub.style.left = ((hit.c + 0.5) / mine.n * 100) + "%";
         bub.style.top = (hit.r / mine.n * 100) + "%";
         if (mine === level) fx.appendChild(bub);
@@ -759,6 +794,41 @@ details p { margin: 6px 0 0; color: var(--muted); }
     loadStage(+b.getAttribute("data-s"));
     window.scrollTo(0, 0);
   });
+  /* ---------- 고양이 설정 ---------- */
+  var catSet = $("catSet"), catList = $("catList"), catsDirty = false;
+  function setPref(v, key, val) {
+    saved.cats = saved.cats || {};
+    var p = saved.cats[COATS[v].id] = saved.cats[COATS[v].id] || {};
+    p[key] = val; persist(); catsDirty = true;
+  }
+  function drawCatList() {
+    catList.replaceChildren();
+    COATS.forEach(function (k, v) {
+      var row = document.createElement("div"), w = catWeight(v);
+      row.className = "cat-row" + (w ? "" : " off");
+      row.innerHTML = '<img alt="" width="56" height="56"><input type="text" maxlength="8" autocomplete="off"><select></select>';
+      row.querySelector("img").src = catSrc(v, 1);
+      var inp = row.querySelector("input"), sel = row.querySelector("select");
+      inp.value = catName(v); inp.placeholder = k.name; inp.setAttribute("aria-label", k.name + " 이름");
+      inp.addEventListener("change", function () { setPref(v, "name", inp.value.trim()); });
+      sel.setAttribute("aria-label", k.name + " 등장 빈도");
+      FREQ.forEach(function (f) { var o = document.createElement("option"); o.value = f[0]; o.textContent = f[1]; if (f[0] === w) o.selected = true; sel.appendChild(o); });
+      sel.addEventListener("change", function () { setPref(v, "w", +sel.value); row.classList.toggle("off", !+sel.value); });
+      catList.appendChild(row);
+    });
+  }
+  function closeCats() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // 입력 중인 이름도 저장되게
+    catSet.hidden = true; app.classList.remove("picking");
+    if (catsDirty) { catsDirty = false; loadStage(level.stage); }
+    window.scrollTo(0, 0);
+  }
+  $("btnCats").addEventListener("click", function () {
+    drawCatList(); app.classList.add("picking"); catSet.hidden = false; window.scrollTo(0, 0);
+  });
+  $("btnCatsBack").addEventListener("click", closeCats);
+  $("btnCatsReset").addEventListener("click", function () { delete saved.cats; persist(); catsDirty = true; drawCatList(); });
+
   $("optArrows").addEventListener("change", function (e) {
     saved.arrows = e.target.checked; persist();
     room.classList.toggle("no-arrows", !saved.arrows);
