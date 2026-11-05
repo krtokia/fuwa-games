@@ -585,13 +585,13 @@ details p { margin: 6px 0 0; color: var(--muted); }
   // 이름은 실제 고양이 이름이라 고정. 등장 빈도 w(0 안 나옴, 1 보통, 2 자주, 4 아주 자주)만 사람마다 「고양이 설정」에서 바꾼다.
   var COATS = [
     { id: "01", name: "후와", w: 2 },
-    { id: "02", name: "나비", w: 1 },
+    { id: "04", name: "슈리", w: 2 },
+    { id: "02", name: "나비", w: 2 },
     { id: "03", name: "두부", w: 1 },
-    { id: "04", name: "슈리", w: 1 },
-    { id: "05", name: "꼬미", w: 1 },
-    { id: "06", name: "나무", w: 1 },
     { id: "07", name: "봉봉", w: 1 },
-    { id: "08", name: "로로", w: 1 }
+    { id: "08", name: "로로", w: 1 },
+    { id: "05", name: "꼬미", w: 1 },
+    { id: "06", name: "나무", w: 1 }
   ];
   var FREQ = [[0, "안 나옴"], [1, "보통"], [2, "자주"], [4, "아주 자주"]];
   function catPref(v) { return (saved.cats && saved.cats[COATS[v].id]) || {}; }
