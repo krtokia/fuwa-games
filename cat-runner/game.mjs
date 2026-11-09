@@ -233,7 +233,7 @@ function bootPhaser() {
     scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY},scene:RunnerScene,
     input:{activePointers:2},audio:{noAudio:true},fps:{target:60,forceSetTimeOut:false},banner:false});
   let oldWidth=width;
-  new ResizeObserver(()=>{const next=Math.max(440,Math.round($('scene').clientWidth));if(next!==oldWidth){pause();oldWidth=next;renderer.scale.resize(next,400);}renderer.scale.refresh();}).observe($('scene'));
+  new ResizeObserver(()=>{const next=Math.max(440,Math.round($('scene').clientWidth));if(next!==oldWidth){pause();oldWidth=next;renderer.scale.setGameSize(next,400);}renderer.scale.refresh();}).observe($('scene'));
 }
 if(window.Phaser)bootPhaser();else {$('start').textContent='게임을 불러오지 못했어요';announce('게임 파일을 불러오지 못했어요. 새로고침해 주세요.');}
 updateHUD();
