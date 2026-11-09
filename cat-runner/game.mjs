@@ -1,272 +1,239 @@
 import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, step, jumpCueSeconds } from './engine.mjs';
 
+// Phaser owns rendering, scene timing, pointer input, particles and tweens.
+// The deterministic rule model stays separate so the course is testable without a GPU.
 const $ = id => document.getElementById(id);
-const canvas = $('canvas');
-const ctx = canvas.getContext('2d');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const sprite = new Image();
-sprite.src = './assets/fuwa-run.svg';
-const STORAGE_KEY = 'fuwa-runner.v1';
+const STORAGE_KEY = 'fuwa-runner.v2';
 let saved = {};
-try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch { /* Private browsing still works. */ }
+try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch {}
 if (typeof saved !== 'object' || Array.isArray(saved)) saved = {};
 let mode = typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'gentle';
-let game = createGame(mode);
-let previousTime = 0;
-let finishShown = false;
-let soundOn = false;
-let audioContext;
-let noticeUntil = 0;
-let lastHeartCount = 3;
-let lastSecond = -1;
-let lastSnackCount = -1;
-let sceneWidth = 720;
-let resultWasRecord = false;
+let game = createGame(mode, 720);
+let scene, renderer, loaded = false, soundOn = false, audioContext;
+let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
+let lastSegment = '', finished = false, visualClock = 0;
 
-for (const input of document.querySelectorAll('[name="mode"]')) {
-  input.checked = input.value === mode;
-  input.addEventListener('change', () => { mode = input.value; saved.mode = mode; save(); });
-}
-function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch { /* No storage is required to play. */ } }
+function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {} }
 function announce(text) { $('announcement').textContent = text; }
 function overlay(card) {
   $('overlay').hidden = !card;
   for (const id of ['start-card', 'result-card', 'pause-card']) $(id).hidden = id !== card;
 }
-function beep(frequency = 600, duration = 0.08, gain = 0.04) {
+function beep(frequency = 660, duration = .09, volume = .035) {
   if (!soundOn) return;
   try {
     audioContext ??= new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') audioContext.resume();
-    const oscillator = audioContext.createOscillator();
-    const volume = audioContext.createGain();
+    const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
     oscillator.type = 'sine'; oscillator.frequency.value = frequency;
-    volume.gain.setValueAtTime(gain, audioContext.currentTime);
-    volume.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
-    oscillator.connect(volume); volume.connect(audioContext.destination);
+    gain.gain.setValueAtTime(volume, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + duration);
+    oscillator.connect(gain); gain.connect(audioContext.destination);
     oscillator.start(); oscillator.stop(audioContext.currentTime + duration);
-  } catch { /* Sound is optional. */ }
+  } catch {}
 }
 function start() {
-  game = createGame(mode, sceneWidth);
-  game.status = 'running';
-  previousTime = 0; finishShown = false; noticeUntil = 0; lastHeartCount = 3;
-  lastSecond = -1; lastSnackCount = -1;
-  overlay(null);
+  if (!loaded) return;
+  game = createGame(mode, scene.scale.width); game.status = 'running';
+  noticeUntil = 0; toastUntil = 0; finished = false; lastSegment = '';
+  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0;
+  scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
-  announce(`${MODES[mode].label} 시작. 화면이나 점프 버튼을 누르면 점프해요.`);
-  beep(440, 0.12);
-  updateHUD();
+  announce(`${MODES[mode].label} 시작. 화면이나 점프 버튼을 누르면 바로 점프해요.`);
+  beep(440,.12); updateHUD();
 }
 function doJump() {
   if (game.status !== 'running') return;
-  if (jump(game)) beep(520, 0.1, 0.025);
+  if (jump(game)) { scene.jumpEffect(); beep(520,.1,.025); }
 }
 function pause() {
   if (game.status !== 'running') return;
-  game.status = 'paused';
-  $('pause').disabled = true; $('jump').disabled = true;
-  overlay('pause-card'); $('resume').focus({ preventScroll: true });
-  announce('잠깐 쉬는 중. 이어서 산책 버튼을 누르면 계속합니다.');
+  game.status = 'paused'; scene.tweens.pauseAll();
+  $('pause').disabled = $('jump').disabled = true;
+  overlay('pause-card'); $('resume').focus({ preventScroll:true }); announce('잠깐 쉬는 중.');
 }
 function resume() {
   if (game.status !== 'paused') return;
-  game.status = 'running'; previousTime = 0;
-  overlay(null); $('pause').disabled = false; $('jump').disabled = false;
-  $('jump').focus({ preventScroll: true }); announce('이어서 산책해요.');
+  game.status = 'running'; scene.tweens.resumeAll();
+  overlay(null); $('pause').disabled = $('jump').disabled = false;
+  $('jump').focus({ preventScroll:true }); announce('이어서 산책해요.');
 }
 function showStart() {
-  mode = typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : mode;
-  game = createGame(mode, sceneWidth); finishShown = false;
-  $('pause').disabled = true; $('jump').disabled = true;
-  $('hint').classList.remove('visible');
-  overlay('start-card'); $('start').focus({ preventScroll: true }); updateHUD();
+  scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
+  scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
+  $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
+  overlay('start-card'); $('start').focus({preventScroll:true}); updateHUD();
 }
 function finish() {
-  if (finishShown) return;
-  finishShown = true;
-  $('pause').disabled = true; $('jump').disabled = true;
-  $('hint').classList.remove('visible');
-  const won = game.status === 'won';
-  const recordKey = `best_${game.mode}`;
-  const best = Number.isFinite(saved[recordKey]) ? Math.max(0, saved[recordKey]) : 0;
-  resultWasRecord = game.snacks > best;
-  saved[recordKey] = Math.max(best, game.snacks); saved.mode = game.mode; save();
-  $('result-kicker').textContent = won ? '달빛 골목 한 바퀴' : '오늘도 즐거운 산책';
-  $('result-title').textContent = won ? '잘 다녀왔어요!' : '잠깐 쉬어 갈까요?';
-  $('result-copy').textContent = `${Math.floor(game.elapsed)}초 동안 간식 ${game.snacks}개를 모았어요.`;
-  $('record').textContent = `${resultWasRecord ? '새 기록! ' : ''}${MODES[game.mode].label} 최고 간식 ${saved[recordKey]}개`;
-  overlay('result-card'); $('again').focus({ preventScroll: true });
-  announce(`${$('result-title').textContent} ${$('result-copy').textContent}`);
-  beep(won ? 780 : 330, 0.2);
+  if (finished) return; finished = true;
+  $('pause').disabled = $('jump').disabled = true;
+  $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
+  const won = game.status === 'won', key = `best_${game.mode}`;
+  const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
+  saved[key] = Math.max(previous,game.snacks); saved.mode=mode; save();
+  $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
+  $('result-title').textContent = won ? '도착! 잘 다녀왔어요' : '잠깐 쉬어 갈까요?';
+  $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 상자 ${game.cleared || 0}개 통과`;
+  $('record').textContent = `${game.snacks>previous?'새 기록! ':''}${MODES[mode].label} 최고 간식 ${saved[key]}개`;
+  overlay('result-card'); $('again').focus({preventScroll:true});
+  announce(`${$('result-title').textContent}. ${$('result-copy').textContent}`); beep(won?880:330,.22);
+}
+function toast(text, duration=1.5) {
+  $('course-toast').textContent=text; $('course-toast').classList.add('visible'); toastUntil=game.elapsed+duration;
 }
 function updateHUD() {
-  const remaining = Math.max(0, Math.ceil(ROUND_SECONDS - game.elapsed));
-  if (remaining !== lastSecond) {
-    $('time').replaceChildren(document.createTextNode(String(remaining)), Object.assign(document.createElement('span'), { textContent: '초' }));
-    document.querySelector('.progress').setAttribute('aria-valuenow', String(Math.floor(game.elapsed)));
-    lastSecond = remaining;
+  const seconds=Math.max(0,Math.ceil(ROUND_SECONDS-game.elapsed));
+  if(seconds!==lastSecond) {
+    $('time').replaceChildren(document.createTextNode(String(seconds)),Object.assign(document.createElement('span'),{textContent:'초'}));
+    document.querySelector('.progress').setAttribute('aria-valuenow',String(Math.floor(game.elapsed))); lastSecond=seconds;
   }
-  if (lastSnackCount !== game.snacks) { $('snacks').textContent = game.snacks; lastSnackCount = game.snacks; }
-  $('hearts').textContent = '♥ '.repeat(game.hearts).trim() + (game.hearts < 3 ? ' ' + '♡ '.repeat(3 - game.hearts).trim() : '');
-  $('hearts').setAttribute('aria-label', `기운 ${game.hearts}개`);
-  $('progress-fill').style.width = `${game.elapsed / ROUND_SECONDS * 100}%`;
-  if (game.status !== 'running') return;
-  const nextBox = game.obstacles.find(o => !o.hit && o.x > CAT_X + 70);
-  const secondsAway = nextBox ? (nextBox.x - CAT_X - 70) / MODES[game.mode].speed : Infinity;
-  const jumpCue = jumpCueSeconds(game.mode);
-  let hint = '';
-  if (game.elapsed < noticeUntil) hint = '괜찮아요! 계속 가요';
-  else if (secondsAway < jumpCue) hint = '지금 눌러요 · 폴짝!';
-  else if (secondsAway < 1.35) hint = '앞에 상자가 있어요';
-  else if (game.elapsed < 4) hint = '화면을 톡 눌러 보세요 ↑';
-  $('hint').textContent = hint; $('hint').classList.toggle('visible', Boolean(hint));
+  if(lastSnacks!==game.snacks) {$('snacks').textContent=game.snacks;lastSnacks=game.snacks;}
+  if(lastHearts!==game.hearts) {$('hearts').textContent='♥ '.repeat(game.hearts).trim()+(game.hearts<3?' '+'♡ '.repeat(3-game.hearts).trim():'');$('hearts').setAttribute('aria-label',`기운 ${game.hearts}개`);lastHearts=game.hearts;}
+  $('progress-fill').style.width=`${game.elapsed/ROUND_SECONDS*100}%`;
+  if(game.segment?.name) {
+    $('segment-label').textContent=game.segment.name;
+    if(lastSegment!==game.segment.id) {if(lastSegment && game.status==='running')toast(game.segment.name,2);lastSegment=game.segment.id;}
+  }
+  if(game.status!=='running') return;
+  const next=game.obstacles.find(o=>!o.hit&&!o.cleared&&o.x>CAT_X+70);
+  const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
+  let text='';
+  if(game.elapsed<noticeUntil)text='괜찮아요! 계속 가요';
+  else if(away<jumpCueSeconds(game.mode))text='지금 톡!  ↑';
+  else if(away<1.3)text='앞에 상자가 있어요';
+  else if(game.elapsed<3)text='한 번 톡, 바로 폴짝 ↑';
+  $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
+  if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
 }
-$('start').addEventListener('click', start);
-$('again').addEventListener('click', start);
-$('change-mode').addEventListener('click', showStart);
-$('restart').addEventListener('click', showStart);
-$('pause').addEventListener('click', pause);
-$('resume').addEventListener('click', resume);
-$('jump').addEventListener('click', doJump);
-$('scene').addEventListener('pointerdown', event => {
-  if (!event.isPrimary || event.button !== 0 || event.target.closest('button,input,label,.overlay')) return;
-  if (game.status === 'running') { event.preventDefault(); doJump(); }
-});
-document.addEventListener('keydown', event => {
-  // Let focused form controls keep their native keyboard behavior.
-  if (event.target.matches('input')) return;
-  const jumpKey = event.code === 'Space' || event.code === 'ArrowUp';
-  if (game.status === 'running' && jumpKey) {
-    // Do not intercept Space on Pause/Sound or another focused button.
-    if (event.target.matches('button') && event.target !== $('jump')) return;
-    event.preventDefault(); if (!event.repeat) doJump();
-  } else if ((event.code === 'Escape' || event.code === 'KeyP') && !event.repeat) {
-    if (game.status === 'running') pause();
-    else if (game.status === 'paused') resume();
+function handleEvent(event) {
+  if(event.type==='snack') {scene.collectEffect(event.x,event.y);beep(680+(game.snacks%4)*90,.055,.018);}
+  if(event.type==='land') scene.landEffect();
+  if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
+  if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();beep(180,.16,.035);announce(`상자에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
+}
+for(const input of document.querySelectorAll('[name="mode"]')) {
+  input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;save();});
+}
+$('start').addEventListener('click',start);$('again').addEventListener('click',start);
+$('change-mode').addEventListener('click',showStart);$('restart').addEventListener('click',showStart);
+$('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
+// Pointer-down removes the release delay of the old click-only jump button.
+$('jump').addEventListener('pointerdown',event=>{if(event.isPrimary&&event.button===0){event.preventDefault();doJump();}});
+$('jump').addEventListener('click',event=>{if(event.detail===0)doJump();});
+document.addEventListener('keydown',event=>{
+  if(event.target.matches('input'))return;
+  if(game.status==='running'&&(event.code==='Space'||event.code==='ArrowUp')) {
+    if(event.target.matches('button')&&event.target!==$('jump'))return;
+    event.preventDefault();if(!event.repeat)doJump();
+  } else if((event.code==='Escape'||event.code==='KeyP')&&!event.repeat) {
+    if(game.status==='running')pause();else if(game.status==='paused')resume();
   }
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
-window.addEventListener('blur', pause);
-$('sound').addEventListener('click', () => {
-  soundOn = !soundOn; $('sound').setAttribute('aria-pressed', String(soundOn));
-  $('sound').textContent = soundOn ? '소리 켜짐' : '소리 꺼짐'; beep(660, 0.08);
-});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
+$('sound').addEventListener('click',()=>{soundOn=!soundOn;$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';beep();});
+document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
+document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 산책 · 기운 3개 · 점프 버튼 하나`;
 
-function rounded(x, y, w, h, radius, fill, stroke = '') {
-  ctx.beginPath(); ctx.roundRect(x, y, w, h, radius); ctx.fillStyle = fill; ctx.fill();
-  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
-}
-function ellipse(x, y, rx, ry, fill) { ctx.fillStyle = fill; ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); }
-function star(x, y, size, color) {
-  ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x, y - size); ctx.lineTo(x + size * .28, y - size * .28); ctx.lineTo(x + size, y); ctx.lineTo(x + size * .28, y + size * .28); ctx.lineTo(x, y + size); ctx.lineTo(x - size * .28, y + size * .28); ctx.lineTo(x - size, y); ctx.lineTo(x - size * .28, y - size * .28); ctx.closePath(); ctx.fill();
-}
-function house(x, y, w, h, fill, windows = 2) {
-  rounded(x,y,w,h,4,fill);
-  ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(x - 7,y + 5); ctx.lineTo(x + w / 2,y - 22); ctx.lineTo(x + w + 7,y + 5); ctx.fill();
-  for(let i = 0; i < windows; i++) {
-    rounded(x + 17 + i * 36,y + 24,17,24,2,'#d6b770');
-    ctx.fillStyle = '#a08b5b'; ctx.fillRect(x + 24 + i * 36,y + 24,2,24); ctx.fillRect(x + 17 + i * 36,y + 34,17,2);
+function bootPhaser() {
+  const Phaser=window.Phaser;
+  class RunnerScene extends Phaser.Scene {
+    constructor(){super('Runner');this.boxes=new Map();this.treats=new Map();this.fx=[];this.lastFootstep=0;}
+    preload(){this.load.image('fuwa','./assets/fuwa-generated.png');this.load.on('loaderror',()=>{loaded=false;$('start').textContent='그림을 불러오지 못했어요';announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.');});}
+    create(){
+      scene=this;
+      if(!this.textures.exists('fuwa'))return;
+      this.textures.get('fuwa').add('trimmed',0,51,96,1449,810);
+      this.makeTextures();
+      this.sky=this.add.tileSprite(0,0,this.scale.width,400,'sky').setOrigin(0).setDepth(-10);
+      this.houses=this.add.tileSprite(0,122,this.scale.width,216,'houses').setOrigin(0).setDepth(-8);
+      this.wall=this.add.tileSprite(0,286,this.scale.width,52,'wall').setOrigin(0).setDepth(-5);
+      this.road=this.add.tileSprite(0,GROUND,this.scale.width,400-GROUND,'road').setOrigin(0).setDepth(-4);
+      this.moon=this.add.circle(this.scale.width*.79,64,25,0xf4e4ad).setAlpha(.94).setDepth(-9);
+      this.moonShade=this.add.circle(this.scale.width*.79-9,57,23,0x2d444d).setDepth(-9);
+      this.shadow=this.add.ellipse(CAT_X+65,GROUND+4,112,12,0x1a3537,.22).setDepth(1);
+      this.cat=this.add.image(CAT_X+66,GROUND+2,'fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setDepth(10);
+      this.ring=this.add.ellipse(CAT_X+70,GROUND-47,142,108).setStrokeStyle(3,0xffebad,.95).setVisible(false).setDepth(11);
+      this.finishGate=this.add.container(this.scale.width+100,GROUND).setDepth(3);
+      const pole1=this.add.rectangle(0,-40,8,80,0x4d6e5d),pole2=this.add.rectangle(100,-40,8,80,0x4d6e5d);
+      const banner=this.add.rectangle(50,-73,112,29,0xf1d796).setStrokeStyle(2,0x8b7445);
+      const label=this.add.text(50,-73,'도착!',{fontFamily:'sans-serif',fontSize:'17px',fontStyle:'bold',color:'#435a40'}).setOrigin(.5);
+      this.finishGate.add([pole1,pole2,banner,label]);
+      this.input.on('pointerdown',()=>doJump());
+      this.scale.on('resize',size=>{for(const layer of [this.sky,this.houses,this.wall,this.road])layer.setSize(size.width,layer.height);this.moon.x=size.width*.79;this.moonShade.x=size.width*.79-9;game.width=size.width;});
+      loaded=true;$('start').disabled=false;$('start').innerHTML='산책 시작 <span aria-hidden="true">→</span>';
+      this.resetRun();updateHUD();
+    }
+    makeTextures(){
+      const sky=this.textures.createCanvas('sky',1200,400),c=sky.context;
+      const grad=c.createLinearGradient(0,0,0,400);grad.addColorStop(0,'#263c48');grad.addColorStop(1,'#617b72');c.fillStyle=grad;c.fillRect(0,0,1200,400);
+      for(let i=0;i<47;i++){const x=(i*127+31)%1200,y=21+(i*41)%164;c.fillStyle=i%4?'#a7bbb4':'#e6dcad';c.fillRect(x,y,i%4?1.5:2.5,i%4?1.5:2.5);}sky.refresh();
+      const g=this.make.graphics({x:0,y:0,add:false});
+      for(let i=0;i<6;i++){
+        const x=i*200,y=62+(i%3)*20,w=111+(i%2)*30;g.fillStyle([0x385458,0x3e5c5e,0x456461][i%3]);g.fillRoundedRect(x,y,w,220-y,4);g.fillTriangle(x-6,y+4,x+w/2,y-28,x+w+6,y+4);
+        for(let j=0;j<2;j++){g.fillStyle(i%2?0xd4ba78:0xb9bb83,.78);g.fillRoundedRect(x+20+j*40,y+24,19,26,2);g.lineStyle(2,0x6e7b66);g.lineBetween(x+29+j*40,y+24,x+29+j*40,y+50);g.lineBetween(x+20+j*40,y+36,x+39+j*40,y+36);}
+      }g.generateTexture('houses',1200,216);g.clear();
+      g.fillStyle(0x587b70);g.fillRect(0,0,160,52);g.fillStyle(0x86a185);g.fillRect(0,0,160,6);g.fillStyle(0x6a8a79);g.fillRect(8,25,55,2);g.fillRect(83,25,55,2);g.fillRect(38,6,2,19);g.fillRect(115,27,2,25);g.generateTexture('wall',160,52);g.clear();
+      g.fillStyle(0xc4caaa);g.fillRect(0,0,200,62);g.fillStyle(0xf0e7bd);g.fillRect(0,0,200,5);g.fillStyle(0x9fae90);g.fillRect(0,5,200,3);g.fillRoundedRect(12,31,49,3,2);g.fillRoundedRect(111,45,33,3,2);g.generateTexture('road',200,62);g.clear();
+      g.fillStyle(0x263f36,.15);g.fillEllipse(28,48,52,9);g.fillStyle(0xd69668);g.fillRoundedRect(4,4,44,42,5);g.lineStyle(2,0x76513a);g.strokeRoundedRect(4,4,44,42,5);g.fillStyle(0xeebc88);g.fillRoundedRect(7,7,38,8,3);g.fillStyle(0xf1d8a5);g.fillRect(22,5,9,40);g.lineStyle(2,0x805b3c);g.lineBetween(11,30,16,24);g.lineBetween(16,24,21,30);g.generateTexture('box',56,55);g.clear();
+      g.fillStyle(0xffd276);g.fillTriangle(4,7,4,25,17,16);g.fillEllipse(25,16,29,20);g.lineStyle(2,0x9d722b);g.strokeEllipse(25,16,29,20);g.fillStyle(0xffedb6);g.fillEllipse(23,12,12,3);g.fillStyle(0x77552d);g.fillCircle(32,14,1.8);g.generateTexture('treat',44,32);g.clear();
+      g.fillStyle(0xffe4a1);g.fillCircle(5,5,4);g.generateTexture('spark',10,10);g.destroy();
+    }
+    resetRun(){
+      this.tweens.killAll();for(const item of this.fx)item.destroy();this.fx=[];
+      for(const item of this.boxes.values())item.destroy();for(const item of this.treats.values())item.destroy();this.boxes.clear();this.treats.clear();
+      if(this.cat){this.cat.setAngle(0).setAlpha(1).clearTint();this.cat.setDisplaySize(174,97.3);}
+      this.lastFootstep=0;this.finishGate?.setVisible(false);
+    }
+    puff(x,y,count=4,color=0xf6e4b8){
+      if(reducedMotion.matches)return;
+      for(let i=0;i<count;i++) {const dot=this.add.circle(x,y,2+(i%3),color,.8).setDepth(13);this.fx.push(dot);
+        this.tweens.add({targets:dot,x:x-16+i*9,y:y-12-(i%3)*6,alpha:0,scale:.2,duration:350+i*20,onComplete:()=>{dot.destroy();this.fx=this.fx.filter(o=>o!==dot);}});}
+    }
+    jumpEffect(){this.puff(CAT_X+66,GROUND-3,5);}
+    landEffect(){this.puff(CAT_X+66,GROUND-1,5,0xc6b995);}
+    collectEffect(x,y){
+      this.puff(x,y,6,0xffdf8d);
+      const label=this.add.text(x,y-15,'+1',{fontFamily:'sans-serif',fontSize:'19px',fontStyle:'bold',color:'#fff0b9',stroke:'#4a6251',strokeThickness:3}).setOrigin(.5).setDepth(15);this.fx.push(label);
+      this.tweens.add({targets:label,y:y-48,alpha:0,duration:650,onComplete:()=>{label.destroy();this.fx=this.fx.filter(o=>o!==label);}});
+    }
+    clearEffect(x,y){if(game.streak%3===0)this.puff(CAT_X+80,GROUND-game.y-70,8,0xe5f4b9);}
+    hitEffect(){if(!reducedMotion.matches)this.cameras.main.shake(90,.0015);this.puff(CAT_X+96,GROUND-24,5,0xf7bd8b);}
+    syncObjects(){
+      const boxes=new Set(game.obstacles.map(o=>o.id));for(const [id,sprite] of this.boxes)if(!boxes.has(id)){sprite.destroy();this.boxes.delete(id);}
+      for(const box of game.obstacles){let sprite=this.boxes.get(box.id);if(!sprite){sprite=this.add.image(box.x-4,GROUND+9,'box').setOrigin(0,1).setDepth(5);this.boxes.set(box.id,sprite);}sprite.x=box.x-4;sprite.setAlpha(box.hit?.55:1);}
+      const treats=new Set(game.treats.map(t=>t.id));for(const [id,sprite] of this.treats)if(!treats.has(id)){sprite.destroy();this.treats.delete(id);}
+      for(const treat of game.treats){let sprite=this.treats.get(treat.id);if(!sprite){sprite=this.add.image(treat.x,treat.y,'treat').setDepth(6);this.treats.set(treat.id,sprite);}sprite.setPosition(treat.x,treat.y);sprite.setScale(1+(reducedMotion.matches?0:Math.sin(visualClock*5+(treat.id||0))*.035));}
+    }
+    update(time,delta){
+      if(!loaded)return;
+      if(game.status==='running'){
+        visualClock+=Math.min(delta/1000,.1);let remaining=Math.min(delta/1000,.1);
+        while(remaining>0){const dt=Math.min(remaining,1/120);step(game,dt);for(const event of game.events||[])handleEvent(event);remaining-=dt;if(game.status!=='running')break;}
+        updateHUD();if(game.status==='won'||game.status==='finished')finish();
+      }
+      const moving=game.status==='running', bob=moving&&game.y===0&&!reducedMotion.matches?Math.sin(visualClock*15)*2:0;
+      this.cat.setPosition(CAT_X+66,GROUND-game.y+2+bob);
+      const scaleX=game.y>0?1.02:1,scaleY=game.y>0?.98:1;
+      this.cat.setDisplaySize(174*scaleX,97.3*scaleY).setAngle(game.y>0&&!reducedMotion.matches?-Math.max(-7,Math.min(7,game.vy/100)):0);
+      this.shadow.setScale(Math.max(.45,1-game.y/420),1).setAlpha(.25-game.y/1400);
+      this.ring.setPosition(CAT_X+70,GROUND-game.y-47).setVisible(game.invincible>0);
+      this.cat.setAlpha(game.invincible>0?.84:1);
+      const distance=reducedMotion.matches?0:game.distance;
+      this.houses.tilePositionX=distance*.13;this.wall.tilePositionX=distance*.38;this.road.tilePositionX=distance;
+      this.syncObjects();
+      if(moving&&game.y===0&&!reducedMotion.matches&&visualClock-this.lastFootstep>.19){this.lastFootstep=visualClock;this.puff(CAT_X+42,GROUND,2,0xded4ae);}
+      const gateX=CAT_X+140+(ROUND_SECONDS-game.elapsed)*MODES[game.mode].speed;
+      this.finishGate.setPosition(gateX,GROUND).setVisible(gateX<this.scale.width+140);
+    }
   }
+  const width=Math.max(440,Math.round($('scene').clientWidth));
+  renderer=new Phaser.Game({type:Phaser.AUTO,parent:'game-canvas',width,height:400,transparent:true,antialias:true,roundPixels:false,
+    scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:RunnerScene,
+    input:{activePointers:2},audio:{noAudio:true},fps:{target:60,forceSetTimeOut:false},banner:false});
+  let oldWidth=width;
+  new ResizeObserver(()=>{const next=Math.max(440,Math.round($('scene').clientWidth));if(next!==oldWidth){pause();oldWidth=next;renderer.scale.resize(next,400);}renderer.scale.refresh();}).observe($('scene'));
 }
-function plant(x,y,scale = 1) {
-  ctx.save(); ctx.translate(x,y); ctx.scale(scale,scale);
-  ctx.strokeStyle = '#6f8f72'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(1,-49); ctx.stroke();
-  for(let i = 0;i < 3;i++) { ellipse(-8,-16-i*12,10,5,'#88a17b'); ellipse(9,-23-i*10,10,5,'#9cb183'); }
-  ctx.fillStyle = '#a17e62'; ctx.beginPath(); ctx.moveTo(-16,-5); ctx.lineTo(16,-5); ctx.lineTo(12,17); ctx.lineTo(-12,17); ctx.fill();
-  rounded(-18,-10,36,9,3,'#c29872'); ctx.restore();
-}
-function drawBackground() {
-  const w = game.width;
-  const gradient = ctx.createLinearGradient(0,0,0,GROUND);
-  gradient.addColorStop(0,'#263b45'); gradient.addColorStop(1,'#526c68'); ctx.fillStyle=gradient; ctx.fillRect(0,0,w,400);
-  ellipse(w*.78,70,27,27,'#e8d8a3'); ellipse(w*.78-10,62,25,25,'#2c424b');
-  for(let i=0;i<24;i++) { const x=(i*137.3+42)%w; const y=28+(i*43)%143; if(i%4===0) star(x,y,3,'#c2cbb9'); else ellipse(x,y,1,1,'#acbdb4'); }
-  const parallax = reducedMotion.matches ? 0 : game.distance * .12;
-  for(let i=-1;i<Math.ceil(w/230)+2;i++) {
-    const x=i*230 - parallax%230;
-    house(x,190+(i%2)*12,98,120,'#354f52',2); house(x+116,212,92,115,'#3c5859',1);
-  }
-  // Garden wall, gate and softly lit path.
-  ctx.fillStyle='#55736b'; ctx.fillRect(0,286,w,52);
-  ctx.fillStyle='#708b78'; ctx.fillRect(0,286,w,6);
-  const offset = reducedMotion.matches ? 0 : game.distance*.35;
-  for(let i=-1;i<Math.ceil(w/74)+1;i++) { ctx.fillStyle='#617d70'; ctx.fillRect(i*74-offset%74,310,50,2); ctx.fillRect(i*74+28-offset%74,294,2,16); }
-  for(let i=-1;i<Math.ceil(w/340)+1;i++) plant(i*340+270-offset%340,319,.75);
-  ctx.fillStyle='#c2c5a4'; ctx.fillRect(0,GROUND,w,62);
-  ctx.fillStyle='#ece4bf'; ctx.fillRect(0,GROUND,w,5);
-  ctx.fillStyle='#a0ac91'; ctx.fillRect(0,GROUND+5,w,3);
-  for(let i=-1;i<Math.ceil(w/100)+1;i++) { const x=i*100-(reducedMotion.matches?0:game.distance)%100; rounded(x,GROUND+33,39,3,2,'#a6b293'); rounded(x+51,GROUND+49,21,3,2,'#b0b89a'); }
-}
-function drawTreat(treat) {
-  ctx.save(); ctx.translate(treat.x,treat.y);
-  ellipse(0,15,12,3,'#142d3122');
-  ctx.strokeStyle='#8b6326'; ctx.lineWidth=2;
-  ctx.fillStyle='#f5cd70'; ctx.beginPath(); ctx.moveTo(-9,0); ctx.lineTo(-22,-9); ctx.lineTo(-22,9); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(0,0,13,9,0,0,Math.PI*2); ctx.fill(); ctx.stroke(); ellipse(5,-2,1.7,1.7,'#71542e');
-  ctx.strokeStyle='#fff0b2'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(-5,-4);ctx.lineTo(1,-5);ctx.stroke(); ctx.restore();
-}
-function drawBox(box) {
-  const x=box.x, y=GROUND-box.h;
-  ellipse(x+22,GROUND+3,28,5,'#263f3633');
-  rounded(x,y,box.w,box.h,5,box.hit?'#ac8c72':'#c48760','#684b3d');
-  rounded(x+3,y+3,box.w-6,8,2,'#dda278');
-  ctx.fillStyle='#ead1a0';ctx.fillRect(x+18,y+1,8,box.h-2);
-  ctx.strokeStyle='#79533d';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x+7,y+25);ctx.lineTo(x+13,y+19);ctx.lineTo(x+18,y+25);ctx.stroke();
-}
-function drawCat() {
-  const moving = game.status==='running';
-  const phase = moving && game.y===0 ? Math.floor(game.elapsed*9)%4 : (game.y>0?2:0);
-  const bob = moving && game.y===0 && !reducedMotion.matches ? Math.sin(game.elapsed*18)*1.3 : 0;
-  ellipse(CAT_X+78,GROUND+3,47-game.y*.09,6,'#263b3e35');
-  ctx.save();
-  if(game.invincible>0) {
-    // A steady protective ring replaces flashing hit feedback.
-    ctx.strokeStyle='#fff0b3';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(CAT_X+86,GROUND-game.y-45,59,45,0,0,Math.PI*2);ctx.stroke();
-  }
-  if(sprite.complete && sprite.naturalWidth) ctx.drawImage(sprite,phase*180,0,180,122,CAT_X,GROUND-game.y-87+bob,144,97.6);
-  else { // Visible fallback even if the sprite is unavailable.
-    ellipse(CAT_X+75,GROUND-game.y-31,45,28,'#b4b0a5');ellipse(CAT_X+111,GROUND-game.y-53,23,23,'#d7c8b0');
-  }
-  ctx.restore();
-}
-function render() {
-  ctx.setTransform(canvas.width/game.width,0,0,canvas.height/400,0,0);
-  ctx.clearRect(0,0,game.width,400);
-  drawBackground(); for(const treat of game.treats) drawTreat(treat);
-  for(const box of game.obstacles) drawBox(box); drawCat();
-  if(game.status==='ready') {
-    drawTreat({x:game.width-78,y:GROUND-34});drawBox({x:game.width-185,w:44,h:42,hit:false});
-  }
-}
-function resize() {
-  const rect=canvas.getBoundingClientRect();
-  const dpr=Math.min(window.devicePixelRatio||1,2);
-  canvas.width=Math.round(rect.width*dpr); canvas.height=Math.round(rect.height*dpr);
-  sceneWidth=Math.max(440,Math.round(rect.width));
-  // Keep approaching obstacles at the same relative travel distance after rotation.
-  const delta=sceneWidth-game.width;
-  for(const obstacle of game.obstacles) if(obstacle.x>CAT_X+170) obstacle.x=Math.max(CAT_X+170,obstacle.x+delta);
-  for(const treat of game.treats) if(treat.x>CAT_X+170) treat.x=Math.max(CAT_X+170,treat.x+delta);
-  game.width=sceneWidth;
-  render();
-}
-new ResizeObserver(resize).observe($('scene'));
-function frame(timestamp) {
-  const dt=previousTime?(timestamp-previousTime)/1000:0;
-  previousTime=timestamp;
-  if(game.status==='running') {
-    // Fixed small steps make jump height/collisions stable at 30, 60 and 120 Hz.
-    let remaining=Math.min(dt,.1);
-    while(remaining>0) {const slice=Math.min(remaining,1/120); step(game,slice);remaining-=slice;}
-    if(game.hearts<lastHeartCount) {
-      lastHeartCount=game.hearts;noticeUntil=game.elapsed+1.7;beep(180,.14,.035);
-      announce(`상자에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);
-    } else if(game.snacks!==lastSnackCount) beep(780,.05,.018);
-    updateHUD();
-    if(game.status==='won'||game.status==='finished') finish();
-  }
-  render(); requestAnimationFrame(frame);
-}
-updateHUD(); resize(); requestAnimationFrame(frame);
+if(window.Phaser)bootPhaser();else {$('start').textContent='게임을 불러오지 못했어요';announce('게임 파일을 불러오지 못했어요. 새로고침해 주세요.');}
+updateHUD();
