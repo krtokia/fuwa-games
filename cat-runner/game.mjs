@@ -74,7 +74,7 @@ function finish() {
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.snacks); saved.mode=mode; save();
   $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
-  $('result-title').textContent = won ? '도착! 잘 다녀왔어요' : '잠깐 쉬어 갈까요?';
+  $('result-title').textContent = won ? '잘 다녀왔어요!' : '잠깐 쉬어 갈까요?';
   $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 상자 ${game.cleared || 0}개 통과`;
   $('record').textContent = `${game.snacks>previous?'새 기록! ':''}${MODES[mode].label} 최고 간식 ${saved[key]}개`;
   overlay('result-card'); $('again').focus({preventScroll:true});
@@ -230,7 +230,7 @@ function bootPhaser() {
   }
   const width=Math.max(440,Math.round($('scene').clientWidth));
   renderer=new Phaser.Game({type:Phaser.AUTO,parent:'game-canvas',width,height:400,transparent:true,antialias:true,roundPixels:false,
-    scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},scene:RunnerScene,
+    scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY},scene:RunnerScene,
     input:{activePointers:2},audio:{noAudio:true},fps:{target:60,forceSetTimeOut:false},banner:false});
   let oldWidth=width;
   new ResizeObserver(()=>{const next=Math.max(440,Math.round($('scene').clientWidth));if(next!==oldWidth){pause();oldWidth=next;renderer.scale.resize(next,400);}renderer.scale.refresh();}).observe($('scene'));
