@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, jump, step, MODES, ROUND_SECONDS, GROUND, CAT_X, jumpCueSeconds, COURSE, SEGMENTS } from '../engine.mjs';
+import { createGame, jump, pressJump, releaseJump, HOLD_SECONDS, step, MODES, ROUND_SECONDS, GROUND, CAT_X, jumpCueSeconds, COURSE, SEGMENTS } from '../engine.mjs';
 function run(g,seconds,dt=1/120) {for(let t=0;t<seconds;t+=dt) step(g,dt);}
 function playing(mode='gentle') { const g=createGame(mode,440);g.status='running';return g; }
 test('unknown mode uses the gentle default',()=>{for (const mode of ['bad', 'constructor', 'toString', '__proto__']) assert.equal(createGame(mode).mode,'gentle');});
@@ -17,13 +17,14 @@ test('the round finishes at forty-four seconds',()=>{const g=playing();g.elapsed
 test('speed is constant, long frames are bounded',()=>{const g=playing('normal');step(g,10);assert(g.elapsed<=1/30);assert.equal(g.distance,MODES.normal.speed/30);});
 test('restarting creates clean state',()=>{const g=playing();g.hearts=1;g.snacks=20;const fresh=createGame(g.mode);assert.equal(fresh.hearts,3);assert.equal(fresh.snacks,0);assert.equal(fresh.elapsed,0);});
 test('a full automated jump run is completable in both modes',()=>{for(const mode of Object.keys(MODES)){const g=playing(mode);for(let i=0;i<ROUND_SECONDS*120+10&&g.status==='running';i++){const next=g.obstacles.find(o=>o.x+o.w>CAT_X+34);if(next&&next.x<CAT_X+99+MODES[mode].speed*.22&&g.y===0) jump(g);step(g,1/120);}assert.equal(g.status,'won',mode);assert.equal(g.hearts,3,mode);}});
-function cueRun(mode, width, hz, delay) {
+function cueRun(mode, width, hz, delay, held = false) {
  const g=createGame(mode,width); g.status='running';
- const scheduled=new Set(), events=[]; let jumpAt=Infinity;
+ const scheduled=new Set(), events=[]; let jumpAt=Infinity, releaseAt=Infinity;
  for(let frame=0; frame<ROUND_SECONDS*hz+10 && g.status==='running'; frame++) {
   const cue=g.obstacles.find(o=>!o.hit&&!o.cleared&&o.x>CAT_X+70&&o.x<CAT_X+70+MODES[mode].speed*jumpCueSeconds(mode));
   if(cue&&!scheduled.has(cue.id)) {scheduled.add(cue.id);jumpAt=g.elapsed+delay;}
-  if(g.elapsed+1e-9>=jumpAt) {jump(g);jumpAt=Infinity;}
+  if(g.elapsed+1e-9>=jumpAt) {if(held) {pressJump(g);releaseAt=g.elapsed+.25;} else jump(g);jumpAt=Infinity;}
+  if(g.elapsed>=releaseAt) {releaseJump(g);releaseAt=Infinity;}
   step(g,1/hz); events.push(...g.events);
  }
  return {g,events};
@@ -36,6 +37,7 @@ test('every course completes cleanly across widths, refresh rates and cue respon
   assert.equal(g.status,'won',label); assert.equal(g.hearts,3,label);
   assert.equal(g.cleared,COURSE.length,label); assert.equal(g.streak,COURSE.length,label);
   assert.equal(g.progress,1); assert.equal(g.segment.id,'finish');
+  assert(g.snacks>11,label);
   assert.equal(events.filter(e=>e.type==='won').length,1);
   for(const type of ['snack','clear']) {
    const matching=events.filter(e=>e.type===type);
@@ -88,4 +90,99 @@ test('terminal and collection events are emitted once, with collection coordinat
  g.hearts=1;g.obstacles=[{id:101,x:CAT_X+50,w:44,h:42,hit:false}];
  step(g,1/30);assert.deepEqual(g.events.map(e=>e.type),['hit','finished']);
  assert.equal(g.event,'finished');const before=JSON.stringify(g);step(g,1/30);assert.equal(JSON.stringify(g),before);
+});
+
+function jumpApex(holdFor = 0, hz = 120) {
+ const g=playing();let apex=0;
+ if(holdFor) pressJump(g);else jump(g);
+ for(let frame=0;frame<hz*2;frame++) {
+  if(g.elapsed>=holdFor-1e-9) releaseJump(g);
+  step(g,1/hz);apex=Math.max(apex,g.y);
+ }
+ return {g,apex};
+}
+test('short taps have one low arc and holds have a distinctly higher arc',()=>{
+ for(const hz of [30,60,120]) {
+  for(const duration of [0, .04, .08, .12]) {
+   const {g,apex}=jumpApex(duration,hz);
+   assert(apex>=89 && apex<=91,`${duration}s at ${hz}Hz: ${apex}`);
+   assert.equal(g.jumpBoosted,false);assert.equal(g.y,0);
+  }
+  const {g,apex}=jumpApex(.3,hz);
+  assert(apex>=144 && apex<=145.01,`${hz}Hz: ${apex}`);
+  assert.equal(g.jumpBoosted,true);assert.equal(g.y,0);
+ }
+});
+test('boost occurs only after the hold threshold; releasing cancels it',()=>{
+ const g=playing();pressJump(g);
+ for(let i=0;i<19;i++) step(g,1/120);
+ assert(g.elapsed<HOLD_SECONDS);assert.equal(g.jumpBoosted,false);
+ const before=g.vy;step(g,1/120);assert(g.vy>before);assert.equal(g.jumpBoosted,true);
+ const short=playing();pressJump(short);
+ for(let i=0;i<19;i++) step(short,1/120);
+ releaseJump(short);step(short,1/120);assert.equal(short.jumpBoosted,false);
+ // Re-pressing in midair cannot upgrade or add to an existing jump.
+ pressJump(short);run(short,.2);assert.equal(short.jumpBoosted,false);
+});
+test('held input never repeats after landing or resets on repeated press events',()=>{
+ const g=playing();assert.equal(pressJump(g),true);
+ step(g,1/120);const before=g.vy;
+ assert.equal(pressJump(g),false);assert.equal(g.vy,before);
+ run(g,2);assert.equal(g.y,0);assert.equal(g.vy,0);
+ assert.equal(pressJump(g),false);assert.equal(g.vy,0);
+ releaseJump(g);assert.equal(pressJump(g),true);
+});
+test('release during pause cancels held boost and restart has no held input',()=>{
+ const g=playing();pressJump(g);run(g,.08);g.status='paused';releaseJump(g);
+ assert.equal(g.jumpHeld,false);assert.equal(pressJump(g),false);
+ const snapshot=JSON.stringify(g);step(g,.1);assert.equal(JSON.stringify(g),snapshot);
+ g.status='running';run(g,.3);assert.equal(g.jumpBoosted,false);
+ const fresh=createGame();assert.equal(fresh.jumpHeld,false);assert.equal(fresh.holdElapsed,0);
+ assert.equal(fresh.jumpBoosted,false);assert.equal(fresh.holdEligible,false);
+});
+test('deliberate held press near landing buffers one jump, and released tap stays low',()=>{
+ for(const held of [false,true]) {
+  const g=playing();g.y=2;g.vy=-400;
+  assert.equal(pressJump(g),false);if(!held) releaseJump(g);
+  step(g,1/120);assert(g.vy>0);run(g,.25);assert.equal(g.jumpBoosted,held);
+  run(g,2);assert.equal(g.y,0);assert.equal(g.vy,0);
+ }
+});
+test('held jumps also complete every cue timing with snack feedback',()=>{
+ for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
+ for(const hz of [30,60,120]) for(const delay of [0,.1,.2,.3,.35,.4]) {
+  const {g,events}=cueRun(mode,width,hz,delay,true);
+  const label=`held ${mode}, ${width}px, ${hz}Hz, ${delay}s`;
+  assert.equal(g.status,'won',label);assert.equal(g.hearts,3,label);
+  assert.equal(g.cleared,COURSE.length,label);assert(g.snacks>11,label);
+  assert(events.some(e=>e.type==='snack'),label);
+ }
+});
+
+test('instant jump API stays low even when a previous held key remains down',()=>{
+ const g=playing();pressJump(g);run(g,2);assert.equal(g.jumpHeld,true);
+ assert.equal(jump(g),true);run(g,.3);assert.equal(g.jumpBoosted,false);
+ assert(g.y<=91);
+});
+
+test('held threshold emits one positioned boost event and taps emit none',()=>{
+ for(const held of [false,true]) {
+  const g=playing();const events=[];
+  if(held) pressJump(g);else jump(g);
+  for(let i=0;i<240;i++) {step(g,1/120);events.push(...g.events);}
+  const boosts=events.filter(e=>e.type==='boost');
+  assert.equal(boosts.length,held?1:0);
+  for(const event of boosts) {
+   assert.equal(event.x,CAT_X+66);assert(Number.isFinite(event.y));
+   assert(event.y<GROUND-30);
+  }
+ }
+});
+test('boost frame respects higher-priority hit feedback',()=>{
+ const g=playing();pressJump(g);
+ for(let i=0;i<19;i++) step(g,1/120);
+ g.obstacles=[{id:999,x:CAT_X+50,w:44,h:200,hit:false}];
+ step(g,1/120);
+ assert(g.events.some(e=>e.type==='boost'));assert(g.events.some(e=>e.type==='hit'));
+ assert.equal(g.event,'hit');
 });

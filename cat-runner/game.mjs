@@ -1,4 +1,4 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, step, jumpCueSeconds } from './engine.mjs';
+import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds } from './engine.mjs';
 
 // Phaser owns rendering, scene timing, pointer input, particles and tweens.
 // The deterministic rule model stays separate so the course is testable without a GPU.
@@ -13,6 +13,7 @@ let game = createGame(mode, 720);
 let scene, renderer, loaded = false, soundOn = false, audioContext;
 let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
 let lastSegment = '', finished = false, visualClock = 0;
+let heldInput = null;
 
 function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {} }
 function announce(text) { $('announcement').textContent = text; }
@@ -35,20 +36,43 @@ function beep(frequency = 660, duration = .09, volume = .035) {
 }
 function start() {
   if (!loaded) return;
+  endJump();
   game = createGame(mode, scene.scale.width); game.status = 'running';
   noticeUntil = 0; toastUntil = 0; finished = false; lastSegment = '';
   lastSecond = lastSnacks = lastHearts = -1; visualClock = 0;
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
-  announce(`${MODES[mode].label} 시작. 화면이나 점프 버튼을 누르면 바로 점프해요.`);
+  announce(`${MODES[mode].label} 시작. 짧게 누르면 낮게, 꾹 누르면 높게 점프해요.`);
   beep(440,.12); updateHUD();
 }
 function doJump() {
-  if (game.status !== 'running') return;
+  if (game.status !== 'running' || heldInput !== null) return;
   if (jump(game)) { scene.jumpEffect(); beep(520,.1,.025); }
 }
+function beginJump(source) {
+  if (game.status !== 'running' || heldInput !== null) return;
+  heldInput = source;
+  $('jump').classList.add('is-held');
+  if (pressJump(game)) { scene.jumpEffect(); beep(520,.1,.025); }
+}
+function endJump(source = null) {
+  if (source !== null && source !== heldInput) return;
+  heldInput = null;
+  releaseJump(game);
+  $('jump').classList.remove('is-held');
+}
+function pointerPress(event) {
+  if (!event.isPrimary || event.button !== 0 || game.status !== 'running') return;
+  event.preventDefault();
+  const source = `pointer:${event.pointerId}`;
+  if (heldInput !== null) return;
+  beginJump(source);
+  try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
+}
+function pointerRelease(event) { endJump(`pointer:${event.pointerId}`); }
 function pause() {
+  endJump();
   if (game.status !== 'running') return;
   game.status = 'paused'; scene.tweens.pauseAll();
   $('pause').disabled = $('jump').disabled = true;
@@ -61,6 +85,7 @@ function resume() {
   $('jump').focus({ preventScroll:true }); announce('이어서 산책해요.');
 }
 function showStart() {
+  endJump();
   scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
   scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
@@ -68,6 +93,7 @@ function showStart() {
 }
 function finish() {
   if (finished) return; finished = true;
+  endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
   const won = game.status === 'won', key = `best_${game.mode}`;
@@ -103,13 +129,14 @@ function updateHUD() {
   if(game.elapsed<noticeUntil)text='괜찮아요! 계속 가요';
   else if(away<jumpCueSeconds(game.mode))text='지금 톡!  ↑';
   else if(away<1.3)text='앞에 상자가 있어요';
-  else if(game.elapsed<3)text='한 번 톡, 바로 폴짝 ↑';
+  else if(game.elapsed<3)text='톡 = 낮게 · 꾹 = 높게';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
 }
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y);beep(680+(game.snacks%4)*90,.055,.018);}
   if(event.type==='land') scene.landEffect();
+  if(event.type==='boost') { scene.puff(CAT_X+66,GROUND-game.y-4,4,0xffe8b1); beep(660,.08,.02); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
   if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();beep(180,.16,.035);announce(`상자에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
 }
@@ -119,18 +146,27 @@ for(const input of document.querySelectorAll('[name="mode"]')) {
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);
 $('change-mode').addEventListener('click',showStart);$('restart').addEventListener('click',showStart);
 $('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
-// Pointer-down removes the release delay of the old click-only jump button.
-$('jump').addEventListener('pointerdown',event=>{if(event.isPrimary&&event.button===0){event.preventDefault();doJump();}});
+// Start immediately; release before the hold threshold keeps the lower jump.
+for (const target of [$('jump'), $('game-canvas')]) {
+  target.addEventListener('pointerdown',pointerPress);
+  target.addEventListener('pointerup',pointerRelease);
+  target.addEventListener('pointercancel',pointerRelease);
+  target.addEventListener('lostpointercapture',pointerRelease);
+  target.addEventListener('contextmenu',event=>event.preventDefault());
+}
+window.addEventListener('pointerup',pointerRelease,true);
+window.addEventListener('pointercancel',pointerRelease,true);
 $('jump').addEventListener('click',event=>{if(event.detail===0)doJump();});
 document.addEventListener('keydown',event=>{
   if(event.target.matches('input'))return;
   if(game.status==='running'&&(event.code==='Space'||event.code==='ArrowUp')) {
     if(event.target.matches('button')&&event.target!==$('jump'))return;
-    event.preventDefault();if(!event.repeat)doJump();
+    event.preventDefault();if(!event.repeat)beginJump(`key:${event.code}`);
   } else if((event.code==='Escape'||event.code==='KeyP')&&!event.repeat) {
     if(game.status==='running')pause();else if(game.status==='paused')resume();
   }
 });
+document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code==='ArrowUp')endJump(`key:${event.code}`);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
 $('sound').addEventListener('click',()=>{soundOn=!soundOn;$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';beep();});
 document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
@@ -160,7 +196,7 @@ function bootPhaser() {
       const banner=this.add.rectangle(50,-73,112,29,0xf1d796).setStrokeStyle(2,0x8b7445);
       const label=this.add.text(50,-73,'도착!',{fontFamily:'sans-serif',fontSize:'17px',fontStyle:'bold',color:'#435a40'}).setOrigin(.5);
       this.finishGate.add([pole1,pole2,banner,label]);
-      this.input.on('pointerdown',()=>doJump());
+      // Native Pointer Events unify mouse, pen and real touch hold/release input.
       this.scale.on('resize',size=>{for(const layer of [this.sky,this.houses,this.wall,this.road])layer.setSize(size.width,layer.height);this.moon.x=size.width*.79;this.moonShade.x=size.width*.79-9;game.width=size.width;});
       loaded=true;$('start').disabled=false;$('start').innerHTML='산책 시작 <span aria-hidden="true">→</span>';
       this.resetRun();updateHUD();
@@ -202,7 +238,7 @@ function bootPhaser() {
     hitEffect(){if(!reducedMotion.matches)this.cameras.main.shake(90,.0015);this.puff(CAT_X+96,GROUND-24,5,0xf7bd8b);}
     syncObjects(){
       const boxes=new Set(game.obstacles.map(o=>o.id));for(const [id,sprite] of this.boxes)if(!boxes.has(id)){sprite.destroy();this.boxes.delete(id);}
-      for(const box of game.obstacles){let sprite=this.boxes.get(box.id);if(!sprite){sprite=this.add.image(box.x-4,GROUND+9,'box').setOrigin(0,1).setDepth(5);this.boxes.set(box.id,sprite);}sprite.x=box.x-4;sprite.setAlpha(box.hit?.55:1);}
+      for(const box of game.obstacles){const sx=box.w/44,sy=box.h/42;let sprite=this.boxes.get(box.id);if(!sprite){sprite=this.add.image(0,0,'box').setOrigin(0,1).setDepth(5);this.boxes.set(box.id,sprite);}sprite.setPosition(box.x-4*sx,GROUND+9*sy).setScale(sx,sy).setAlpha(box.hit?.55:1);}
       const treats=new Set(game.treats.map(t=>t.id));for(const [id,sprite] of this.treats)if(!treats.has(id)){sprite.destroy();this.treats.delete(id);}
       for(const treat of game.treats){let sprite=this.treats.get(treat.id);if(!sprite){sprite=this.add.image(treat.x,treat.y,'treat').setDepth(6);this.treats.set(treat.id,sprite);}sprite.setPosition(treat.x,treat.y);sprite.setScale(1+(reducedMotion.matches?0:Math.sin(visualClock*5+(treat.id||0))*.035));}
     }

@@ -2,7 +2,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { ROUND_SECONDS } from '../engine.mjs';
 const file=p=>new URL('../'+p,import.meta.url);
 const html=readFileSync(file('index.html'),'utf8');
@@ -28,7 +27,10 @@ test('HTML duration agrees with the authored course',()=>{
  assert(html.includes(`aria-valuemax="${ROUND_SECONDS}"`));assert(html.includes(`${ROUND_SECONDS}초 산책`));
 });
 test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>{
- assert(game.includes("$('jump').addEventListener('pointerdown'"));assert(game.includes("this.input.on('pointerdown'"));
+ assert(game.includes("target.addEventListener('pointerdown',pointerPress)"));
+ assert(game.includes("$('jump'), $('game-canvas')"));
+ assert(game.includes("target.addEventListener('pointercancel',pointerRelease)"));
+ assert(game.includes("document.addEventListener('keyup'"));
  assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(game.includes('next!==oldWidth){pause()'));
 });
 test('Phaser MIT license is retained',()=>{const license=readFileSync(file('vendor/PHASER-LICENSE.md'),'utf8');assert(license.includes('MIT'));assert(readFileSync(file('vendor/phaser-3.90.0.min.js')).length>1000000);});
