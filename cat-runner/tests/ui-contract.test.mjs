@@ -34,3 +34,9 @@ test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>
  assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(game.includes('next!==oldWidth){pause()'));
 });
 test('Phaser MIT license is retained',()=>{const license=readFileSync(file('vendor/PHASER-LICENSE.md'),'utf8');assert(license.includes('MIT'));assert(readFileSync(file('vendor/phaser-3.90.0.min.js')).length>1000000);});
+
+test('tutorial describes two separate taps and denies any hold-height effect',()=>{
+ assert(html.includes('공중에서 한 번 더 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
+ assert(html.includes('id="jump-label"'));assert(html.includes('id="jump-state"'));
+ assert(!html.includes('꾹 누르면'));assert(!game.includes('hold threshold'));
+});

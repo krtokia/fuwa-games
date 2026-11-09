@@ -1,11 +1,11 @@
-// Controller-only DOM doubles: verify held input plumbing, not browser rendering.
+// Controller-only DOM doubles: verify distinct press edges, not browser rendering.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const engine=readFileSync(new URL('../engine.mjs',import.meta.url),'utf8').replaceAll('export ','');
 const controller=readFileSync(new URL('../game.mjs',import.meta.url),'utf8').replace(/^import .*;\n/,'');
-function setup() {
+function setup(saved = null) {
  const elements=new Map();
  class Element {
   constructor(id=''){this.id=id;this.handlers={};this.style={};this.textContent='';this.attributes={};this.classList={add(){},remove(){},toggle(){}};}
@@ -19,7 +19,7 @@ function setup() {
  const el=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  const document=Object.assign(new Element('document'),{hidden:false,getElementById:el,querySelector:()=>el('progress'),querySelectorAll:()=>['gentle','normal'].map(value=>Object.assign(el('mode-'+value),{value})),createTextNode:textContent=>({textContent}),createElement:()=>new Element()});
  const window=new Element('window');
- const sandbox={document,window,localStorage:{getItem:()=>null,setItem(){}},matchMedia:()=>({matches:false}),console};
+ const sandbox={document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(){}},matchMedia:()=>({matches:false}),console};
  vm.createContext(sandbox);vm.runInContext(engine+'\n'+controller,sandbox);
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  el('start').emit('click');
@@ -27,25 +27,71 @@ function setup() {
  return{el,document,window,tick,get game(){return vm.runInContext('game',sandbox);},get held(){return vm.runInContext('heldInput',sandbox);}};
 }
 const pointer={pointerId:7,isPrimary:true,button:0};
-test('button and canvas short pointer taps produce the lower jump',()=>{
- for(const target of ['jump','game-canvas']){const ui=setup();ui.el(target).emit('pointerdown',pointer);let peak=ui.tick(.08);ui.el(target).emit('pointerup',pointer);peak=Math.max(peak,ui.tick(1.5));assert(peak>89&&peak<91);assert.equal(ui.game.jumpBoosted,false);assert.equal(ui.held,null);}
+test('button and canvas tap or long hold always produce the same low jump',()=>{
+ for(const target of ['jump','game-canvas'])for(const duration of [.05,.3,2]){
+  const ui=setup();ui.el(target).emit('pointerdown',pointer);let peak=ui.tick(duration);
+  ui.el(target).emit('pointerup',pointer);peak=Math.max(peak,ui.tick(1.5));
+  assert(peak>89&&peak<91);assert.equal(ui.game.y,0);assert.equal(ui.held,null);
+ }
 });
-test('holding button or canvas yields one higher jump, not auto-repeat',()=>{
- for(const target of ['jump','game-canvas']){const ui=setup();ui.el(target).emit('pointerdown',pointer);const peak=ui.tick(2);assert(peak>144&&peak<146);assert.equal(ui.game.y,0);ui.tick(1);assert.equal(ui.game.y,0);ui.window.emit('pointerup',pointer);assert.equal(ui.held,null);}
+test('release then second pointer-down creates a double jump and third is ignored',()=>{
+ for(const target of ['jump','game-canvas']){
+  const ui=setup();ui.el(target).emit('pointerdown',pointer);ui.tick(.05);ui.window.emit('pointerup',pointer);ui.tick(.3);
+  const previous=ui.game.vy;ui.el(target).emit('pointerdown',pointer);
+  assert.equal(ui.game.jumpCount,2);assert(ui.game.vy>previous);assert.equal(ui.el('jump-label').textContent,'점프');
+  ui.window.emit('pointerup',pointer);ui.tick(.05);const before=ui.game.vy;
+  ui.el(target).emit('pointerdown',pointer);assert.equal(ui.game.vy,before);assert.equal(ui.game.jumpCount,2);
+  ui.window.emit('pointerup',pointer);assert(ui.tick(1.6)>170);assert.equal(ui.game.jumpCount,0);
+ }
 });
-test('pointer cancellation or release outside cancels the pending boost',()=>{
- for(const event of ['pointerup','pointercancel']){const ui=setup();ui.el('game-canvas').emit('pointerdown',pointer);ui.tick(.08);ui.window.emit(event,pointer);const peak=ui.tick(1.4);assert(peak<91);assert.equal(ui.game.jumpBoosted,false);assert.equal(ui.game.jumpHeld,false);}
+test('holding cannot repeat or trigger another jump after landing',()=>{
+ const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.tick(2);
+ assert.equal(ui.game.y,0);assert.equal(ui.game.jumpCount,0);
+ ui.el('jump').emit('pointerdown',pointer);ui.tick(.2);assert.equal(ui.game.y,0);
+ ui.window.emit('pointerup',pointer);ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,1);
 });
-test('keyboard keyup distinguishes tap from hold and ignores repeated keydown',()=>{
- for(const duration of [.06,.3]){const ui=setup();ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});let peak=ui.tick(duration);ui.document.emit('keydown',{code:'Space',repeat:true,target:ui.el('jump')});ui.document.emit('keyup',{code:'Space'});peak=Math.max(peak,ui.tick(1.5));assert(duration<.16?peak<91:peak>144);assert.equal(ui.game.jumpBuffer,0);}
+test('pointer cancellation, lost capture and outside release permit a later deliberate tap',()=>{
+ for(const event of ['pointerup','pointercancel','lostpointercapture']){
+  const ui=setup();ui.el('game-canvas').emit('pointerdown',pointer);ui.tick(.1);
+  (event==='lostpointercapture'?ui.el('game-canvas'):ui.window).emit(event,pointer);
+  assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);
+  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
+ }
 });
-test('pause and blur clear held input before resume',()=>{
- for(const action of ['pause','blur']){const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.tick(.08);if(action==='pause')ui.el('pause').emit('click');else ui.window.emit('blur');assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);ui.el('resume').emit('click');assert(ui.tick(1.4)<91);}
+test('keyboard requires two separate presses; autorepeat and other simultaneous keys cannot jump',()=>{
+ for(const code of ['Space','ArrowUp']){
+  const ui=setup();ui.document.emit('keydown',{code,repeat:false,target:ui.el('jump')});ui.tick(.3);
+  const before=ui.game.vy;
+  ui.document.emit('keydown',{code,repeat:true,target:ui.el('jump')});
+  ui.document.emit('keydown',{code:code==='Space'?'ArrowUp':'Space',repeat:false,target:ui.el('jump')});
+  assert.equal(ui.game.jumpCount,1);assert.equal(ui.game.vy,before);
+  ui.document.emit('keyup',{code});ui.document.emit('keydown',{code,repeat:false,target:ui.el('jump')});
+  assert.equal(ui.game.jumpCount,2);assert(ui.game.vy>before);
+  ui.document.emit('keyup',{code});ui.tick(1.6);assert.equal(ui.game.jumpCount,0);
+ }
+});
+test('pause and blur clear held input, but preserve the used airborne jump count',()=>{
+ for(const action of ['pause','blur']){
+  const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.tick(.08);
+  if(action==='pause')ui.el('pause').emit('click');else ui.window.emit('blur');
+  assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);assert.equal(ui.game.jumpCount,1);
+  ui.el('resume').emit('click');ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
+ }
 });
 test('secondary pointer cannot steal or release the active jump',()=>{
- const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.el('game-canvas').emit('pointerdown',{...pointer,pointerId:8,isPrimary:false});ui.window.emit('pointerup',{...pointer,pointerId:8});assert.equal(ui.held,'pointer:7');ui.window.emit('pointerup',pointer);assert.equal(ui.held,null);
+ const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.el('game-canvas').emit('pointerdown',{...pointer,pointerId:8,isPrimary:false});ui.window.emit('pointerup',{...pointer,pointerId:8});assert.equal(ui.held,'pointer:7');assert.equal(ui.game.jumpCount,1);ui.window.emit('pointerup',pointer);assert.equal(ui.held,null);
 });
-test('assistive click stays low and a follow-up mouse click cannot queue another jump',()=>{
- const ui=setup();ui.el('jump').emit('click',{detail:0});assert(ui.tick(1.5)<91);
- ui.el('jump').emit('pointerdown',pointer);ui.tick(.05);ui.el('jump').emit('pointerup',pointer);ui.el('jump').emit('click',{detail:1});assert.equal(ui.game.jumpBuffer,0);
+test('assistive click supports double jump, but compatibility mouse clicks cannot add a jump',()=>{
+ const ui=setup();ui.el('jump').emit('click',{detail:0});ui.tick(.3);ui.el('jump').emit('click',{detail:0});assert.equal(ui.game.jumpCount,2);ui.tick(1.6);
+ ui.el('jump').emit('pointerdown',pointer);ui.tick(.05);ui.el('jump').emit('pointerup',pointer);ui.el('jump').emit('click',{detail:1});assert.equal(ui.game.jumpCount,1);
+});
+test('restart clears airborne count, input and second-jump label',()=>{
+ const ui=setup();ui.el('jump').emit('pointerdown',pointer);ui.tick(.2);ui.el('pause').emit('click');ui.el('restart').emit('click');
+ assert.equal(ui.game.status,'ready');assert.equal(ui.game.jumpCount,0);assert.equal(ui.held,null);assert.equal(ui.el('jump-label').textContent,'점프');
+ ui.el('start').emit('click');assert.equal(ui.game.jumpCount,0);
+});
+
+test('new pace is default even for legacy slow preference; new explicit choice is retained',()=>{
+ assert.equal(setup().game.mode,'normal');assert.equal(setup({mode:'gentle'}).game.mode,'normal');
+ assert.equal(setup({mode:'gentle',paceVersion:4}).game.mode,'gentle');
 });

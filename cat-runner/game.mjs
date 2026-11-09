@@ -1,6 +1,6 @@
 import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds } from './engine.mjs';
 
-// Phaser owns rendering, scene timing, pointer input, particles and tweens.
+// Phaser owns rendering, scene timing, particles and tweens. Native input supplies tap edges.
 // The deterministic rule model stays separate so the course is testable without a GPU.
 const $ = id => document.getElementById(id);
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -8,7 +8,8 @@ const STORAGE_KEY = 'fuwa-runner.v2';
 let saved = {};
 try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch {}
 if (typeof saved !== 'object' || Array.isArray(saved)) saved = {};
-let mode = typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'gentle';
+// Pace changed in v0.4: start everyone on the new runner speed once, then remember their choice.
+let mode = saved.paceVersion === 4 && typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'normal';
 let game = createGame(mode, 720);
 let scene, renderer, loaded = false, soundOn = false, audioContext;
 let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
@@ -43,18 +44,22 @@ function start() {
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
-  announce(`${MODES[mode].label} 시작. 짧게 누르면 낮게, 꾹 누르면 높게 점프해요.`);
+  announce(`${MODES[mode].label} 시작. 한 번 톡 누르면 낮게, 공중에서 한 번 더 누르면 2단 점프해요.`);
   beep(440,.12); updateHUD();
 }
 function doJump() {
   if (game.status !== 'running' || heldInput !== null) return;
-  if (jump(game)) { scene.jumpEffect(); beep(520,.1,.025); }
+  if (jump(game)) jumpFeedback();
+}
+function jumpFeedback() {
+  if (game.jumpCount === 1) { scene.jumpEffect(); beep(520,.1,.025); }
+  updateHUD();
 }
 function beginJump(source) {
   if (game.status !== 'running' || heldInput !== null) return;
   heldInput = source;
   $('jump').classList.add('is-held');
-  if (pressJump(game)) { scene.jumpEffect(); beep(520,.1,.025); }
+  if (pressJump(game)) jumpFeedback();
 }
 function endJump(source = null) {
   if (source !== null && source !== heldInput) return;
@@ -98,7 +103,7 @@ function finish() {
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
   const won = game.status === 'won', key = `best_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
-  saved[key] = Math.max(previous,game.snacks); saved.mode=mode; save();
+  saved[key] = Math.max(previous,game.snacks); saved.mode=mode; saved.paceVersion=4; save();
   $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
   $('result-title').textContent = won ? '잘 다녀왔어요!' : '잠깐 쉬어 갈까요?';
   $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 상자 ${game.cleared || 0}개 통과`;
@@ -122,6 +127,11 @@ function updateHUD() {
     $('segment-label').textContent=game.segment.name;
     if(lastSegment!==game.segment.id) {if(lastSegment && game.status==='running')toast(game.segment.name,2);lastSegment=game.segment.id;}
   }
+  const airborne=game.status==='running' && game.jumpCount>0;
+  const canDouble=airborne && game.jumpCount===1;
+  $('jump-label').textContent=canDouble?'한 번 더':'점프';
+  $('jump').classList.toggle('can-double',canDouble);
+  $('jump-state').textContent=canDouble?'공중에서 한 번 더 가능':airborne?'착지하면 다시 점프해요':'한 번 톡 = 낮은 점프';
   if(game.status!=='running') return;
   const next=game.obstacles.find(o=>!o.hit&&!o.cleared&&o.x>CAT_X+70);
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
@@ -129,24 +139,24 @@ function updateHUD() {
   if(game.elapsed<noticeUntil)text='괜찮아요! 계속 가요';
   else if(away<jumpCueSeconds(game.mode))text='지금 톡!  ↑';
   else if(away<1.3)text='앞에 상자가 있어요';
-  else if(game.elapsed<3)text='톡 = 낮게 · 꾹 = 높게';
+  else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
 }
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y);beep(680+(game.snacks%4)*90,.055,.018);}
   if(event.type==='land') scene.landEffect();
-  if(event.type==='boost') { scene.puff(CAT_X+66,GROUND-game.y-4,4,0xffe8b1); beep(660,.08,.02); }
+  if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); beep(720,.1,.025); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
   if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();beep(180,.16,.035);announce(`상자에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
 }
 for(const input of document.querySelectorAll('[name="mode"]')) {
-  input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;save();});
+  input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
 }
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);
 $('change-mode').addEventListener('click',showStart);$('restart').addEventListener('click',showStart);
 $('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
-// Start immediately; release before the hold threshold keeps the lower jump.
+// Every release-then-press is one jump. Holding never changes height or repeats.
 for (const target of [$('jump'), $('game-canvas')]) {
   target.addEventListener('pointerdown',pointerPress);
   target.addEventListener('pointerup',pointerRelease);
@@ -196,7 +206,7 @@ function bootPhaser() {
       const banner=this.add.rectangle(50,-73,112,29,0xf1d796).setStrokeStyle(2,0x8b7445);
       const label=this.add.text(50,-73,'도착!',{fontFamily:'sans-serif',fontSize:'17px',fontStyle:'bold',color:'#435a40'}).setOrigin(.5);
       this.finishGate.add([pole1,pole2,banner,label]);
-      // Native Pointer Events unify mouse, pen and real touch hold/release input.
+      // Native Pointer Events unify mouse, pen and real touch tap edges.
       this.scale.on('resize',size=>{for(const layer of [this.sky,this.houses,this.wall,this.road])layer.setSize(size.width,layer.height);this.moon.x=size.width*.79;this.moonShade.x=size.width*.79-9;game.width=size.width;});
       loaded=true;$('start').disabled=false;$('start').innerHTML='산책 시작 <span aria-hidden="true">→</span>';
       this.resetRun();updateHUD();

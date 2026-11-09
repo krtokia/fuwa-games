@@ -117,3 +117,11 @@ h2 { font-size:25px; line-height:1.3; letter-spacing:-.04em; margin:6px 0 8px; }
 .jump-button.is-held {background:#eabd61;box-shadow:0 2px 0 #b57f39;transform:translateY(2px);}
 .jump-button,#game-canvas {user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;}
 .instructions br {display:initial;}
+
+/* A visible invitation for the one available airborne tap, without flashing. */
+.jump-button.can-double:not(:disabled) {background:#ffe2a2;border-color:#a77331;}
+@media(max-width:600px) {.jump-button {font-size:22px;} .control-tip b {font-size:14px;} }
+
+@media(max-width:360px) {.jump-button {font-size:20px;gap:5px;} }
+
+.hint {max-width:calc(100% - 28px);white-space:normal;text-align:center;}

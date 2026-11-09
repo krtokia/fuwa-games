@@ -1,7 +1,7 @@
 // Pure, authored game rules. Renderers supply time; no random values or browser state.
 export const MODES = Object.freeze({
-  gentle: { label: '느긋하게', speed: 155, gap: 2.8 },
-  normal: { label: '보통으로', speed: 215, gap: 2.8 },
+  gentle: { label: '천천히', speed: 240, gap: 2 },
+  normal: { label: '달리기', speed: 360, gap: 2 },
 });
 export function jumpCueSeconds(mode) { return mode === 'normal' ? .53 : .56; }
 export const ROUND_SECONDS = 44;
@@ -9,56 +9,57 @@ export const GROUND = 338;
 export const CAT_X = 76;
 export const GRAVITY = 800;
 export const JUMP_SPEED = 380;
-export const HOLD_SECONDS = .16;
-export const HIGH_JUMP_APEX = 145;
+// A second tap resets upward speed, never adds velocity: at most ~180.5px total.
+export const SECOND_JUMP_SPEED = 380;
 export const FIXED_STEP = 1 / 120;
-export const COURSE = Object.freeze([6, 9, 12, 17, 19.8, 22.6, 28, 30.8, 33.6, 38, 40.8]);
+export const COURSE = Object.freeze([4, 6, 8, 10, 12, 15.5, 17.5, 19.5, 21.5, 23.5, 27, 29, 31, 33, 35, 37, 39, 41]);
 export const SEGMENTS = Object.freeze([
-  { id: 'welcome', name: '가볍게 시작해요', start: 0, end: 5 },
-  { id: 'practice', name: '하나씩 폴짝', start: 5, end: 14 },
-  { id: 'recovery-one', name: '잠깐 숨 고르기', start: 14, end: 16 },
-  { id: 'rhythm', name: '리듬을 타요', start: 16, end: 25 },
-  { id: 'recovery-two', name: '간식 산책', start: 25, end: 27 },
-  { id: 'flow', name: '사뿐사뿐', start: 27, end: 36 },
-  { id: 'finale', name: '마지막 두 번!', start: 36, end: 42 },
+  { id: 'welcome', name: '가볍게 시작해요', start: 0, end: 3 },
+  { id: 'practice', name: '하나씩 폴짝', start: 3, end: 13 },
+  { id: 'recovery-one', name: '잠깐 숨 고르기', start: 13, end: 15 },
+  { id: 'rhythm', name: '리듬을 타요', start: 15, end: 25 },
+  { id: 'recovery-two', name: '간식 산책', start: 25, end: 26.5 },
+  { id: 'flow', name: '사뿐사뿐', start: 26.5, end: 38 },
+  { id: 'finale', name: '마지막 두 번!', start: 38, end: 42 },
   { id: 'finish', name: '도착이에요!', start: 42, end: ROUND_SECONDS },
 ].map(Object.freeze));
 const SNACK_TIMES = [1.8, 2.5, 3.2, 14.6, 15.2, 25.4, 26, 35.4, 36, 42.3, 42.9];
-export function createGame(mode = 'gentle', width = 720) {
-  if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) mode = 'gentle';
+export function createGame(mode = 'normal', width = 720) {
+  if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) mode = 'normal';
   return { mode, width, status: 'ready', elapsed: 0, distance: 0, hearts: 3,
-    snacks: 0, y: 0, vy: 0, invincible: 0, jumpBuffer: 0,
-    jumpHeld: false, holdElapsed: 0, jumpBoosted: false, holdEligible: false, bufferHeld: false,
+    snacks: 0, y: 0, vy: 0, invincible: 0,
+    jumpHeld: false, jumpCount: 0, pendingBoost: null,
     obstacles: [], treats: [], serial: 0, event: '', events: [], hitCount: 0,
     cleared: 0, streak: 0, bestStreak: 0, segment: SEGMENTS[0], progress: 0,
     courseIndex: 0, snackIndex: 0, accumulator: 0 };
 }
-export function jump(game) { return requestJump(game, false); }
-function requestJump(game, held) {
-  if (game.status !== 'running') return false;
-  if (game.y <= 0.01 && game.vy === 0) {
-    game.vy = JUMP_SPEED;
-    game.holdElapsed = 0; game.jumpBoosted = false;
-    game.holdEligible = held && game.jumpHeld;
-    game.jumpBuffer = 0;
-    return true;
-  }
-  // No extra airborne jump: a tap is remembered only until a near landing.
-  game.jumpBuffer = .12;
-  game.bufferHeld = held;
-  return false;
+// Atomic tap API. It cannot bypass an existing physical held press.
+export function jump(game) {
+  if (game.status !== 'running' || game.jumpHeld) return false;
+  const accepted = pressJump(game);
+  releaseJump(game);
+  return accepted;
 }
-// A press edge may buffer a near-landing jump; continued holding never repeats.
+function requestJump(game) {
+  if (game.jumpCount >= 2) return false;
+  game.jumpCount++;
+  game.vy = game.jumpCount === 1 ? JUMP_SPEED : SECOND_JUMP_SPEED;
+  if (game.jumpCount === 2) {
+    // Preserve the input location; step publishes this once on its next physics tick.
+    game.pendingBoost = { x: CAT_X + 66, y: GROUND - game.y - 30 };
+  }
+  return true;
+}
+// Only a fresh press edge can jump. Landing resets the count, not the held latch.
+// There is no landing buffer: a rejected third press is never replayed later.
 export function pressJump(game) {
   if (game.status !== 'running' || game.jumpHeld) return false;
   game.jumpHeld = true;
-  return requestJump(game, true);
+  return requestJump(game);
 }
-// Call on key/pointer release, blur and before pausing to cancel a pending boost.
+// Call on key/pointer release, blur and before pausing. No trajectory is changed.
 export function releaseJump(game) {
   game.jumpHeld = false;
-  game.holdEligible = false;
-  game.holdElapsed = 0;
 }
 export function catBounds(game) {
   return { x: CAT_X + 34, y: GROUND - game.y - 60, w: 65, h: 55 };
@@ -79,22 +80,16 @@ function tick(game, dt) {
   game.progress = game.elapsed / ROUND_SECONDS;
   game.segment = SEGMENTS.find(s => game.elapsed < s.end) || SEGMENTS.at(-1);
   game.invincible = Math.max(0, game.invincible - dt);
-  game.jumpBuffer = Math.max(0, game.jumpBuffer - dt);
+  if (game.pendingBoost) {
+    emit(game, 'boost', game.pendingBoost);
+    game.pendingBoost = null;
+  }
   if (game.y > 0 || game.vy > 0) {
-    if (game.jumpHeld && game.holdEligible && !game.jumpBoosted) {
-      game.holdElapsed += dt;
-      if (game.holdElapsed >= HOLD_SECONDS - 1e-10) {
-        game.vy = Math.sqrt(2 * GRAVITY * Math.max(0, HIGH_JUMP_APEX - game.y));
-        game.jumpBoosted = true;
-        emit(game, 'boost');
-      }
-    }
     game.y += game.vy * dt - GRAVITY * dt * dt / 2;
     game.vy -= GRAVITY * dt;
     if (game.y <= 0) {
-      game.y = 0; game.vy = 0; game.holdEligible = false;
+      game.y = 0; game.vy = 0; game.jumpCount = 0;
       emit(game, 'land');
-      if (game.jumpBuffer > 0) requestJump(game, game.bufferHeld);
     }
   }
   // Each authored encounter is when a box's left edge reaches CAT_X + 70.
