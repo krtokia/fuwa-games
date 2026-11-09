@@ -55,3 +55,9 @@ test('score, obstacle hints and audio lifecycle are connected',()=>{
  for(const action of ['start','pause','resume','stop'])assert(game.includes(`audio.${action}()`));
  assert(game.includes("audio.play('finish')"));assert(game.includes("event.kind"));
 });
+
+test('jump cues live in controls so a high arc cannot cover the cat',()=>{
+ assert(html.indexOf('id="hint"')>html.indexOf('class="controls"'));
+ assert(html.indexOf('id="hint"')>html.indexOf('class="progress"'));
+ assert(readFileSync(file('style.css'),'utf8').includes('.control-tip .hint{position:static'));
+});

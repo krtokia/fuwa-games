@@ -143,3 +143,7 @@ h1{font-size:26px}
 
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important}
 }
+
+/* Cues belong next to the jump button, never over the cat's high arc. */
+.control-tip .hint{position:static;transform:none;max-width:none;min-height:22px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;color:#f6d38b;font-size:16px;line-height:1.4;text-align:left;white-space:normal}
+@media(max-width:600px){.control-tip .hint{font-size:13px;min-height:19px}}
