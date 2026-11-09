@@ -1,4 +1,5 @@
 import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds } from './engine.mjs';
+import { RunnerAudio } from './audio.mjs';
 
 // Phaser owns rendering, scene timing, particles and tweens. Native input supplies tap edges.
 // The deterministic rule model stays separate so the course is testable without a GPU.
@@ -11,7 +12,8 @@ if (typeof saved !== 'object' || Array.isArray(saved)) saved = {};
 // Pace changed in v0.4: start everyone on the new runner speed once, then remember their choice.
 let mode = saved.paceVersion === 4 && typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'normal';
 let game = createGame(mode, 720);
-let scene, renderer, loaded = false, soundOn = false, audioContext;
+let scene, renderer, loaded = false, soundOn = false;
+const audio = new RunnerAudio();
 let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
 let lastSegment = '', finished = false, visualClock = 0;
 let heldInput = null;
@@ -21,19 +23,6 @@ function announce(text) { $('announcement').textContent = text; }
 function overlay(card) {
   $('overlay').hidden = !card;
   for (const id of ['start-card', 'result-card', 'pause-card']) $(id).hidden = id !== card;
-}
-function beep(frequency = 660, duration = .09, volume = .035) {
-  if (!soundOn) return;
-  try {
-    audioContext ??= new (window.AudioContext || window.webkitAudioContext)();
-    if (audioContext.state === 'suspended') audioContext.resume();
-    const oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
-    oscillator.type = 'sine'; oscillator.frequency.value = frequency;
-    gain.gain.setValueAtTime(volume, audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + duration);
-    oscillator.connect(gain); gain.connect(audioContext.destination);
-    oscillator.start(); oscillator.stop(audioContext.currentTime + duration);
-  } catch {}
 }
 function start() {
   if (!loaded) return;
@@ -45,14 +34,14 @@ function start() {
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
   announce(`${MODES[mode].label} 시작. 한 번 톡 누르면 낮게, 공중에서 한 번 더 누르면 2단 점프해요.`);
-  beep(440,.12); updateHUD();
+  audio.start(); updateHUD();
 }
 function doJump() {
   if (game.status !== 'running' || heldInput !== null) return;
   if (jump(game)) jumpFeedback();
 }
 function jumpFeedback() {
-  if (game.jumpCount === 1) { scene.jumpEffect(); beep(520,.1,.025); }
+  if (game.jumpCount === 1) { scene.jumpEffect(); audio.play('jump'); }
   updateHUD();
 }
 function beginJump(source) {
@@ -79,18 +68,18 @@ function pointerRelease(event) { endJump(`pointer:${event.pointerId}`); }
 function pause() {
   endJump();
   if (game.status !== 'running') return;
-  game.status = 'paused'; scene.tweens.pauseAll();
+  game.status = 'paused'; scene.tweens.pauseAll(); audio.pause();
   $('pause').disabled = $('jump').disabled = true;
   overlay('pause-card'); $('resume').focus({ preventScroll:true }); announce('잠깐 쉬는 중.');
 }
 function resume() {
   if (game.status !== 'paused') return;
-  game.status = 'running'; scene.tweens.resumeAll();
+  game.status = 'running'; scene.tweens.resumeAll(); audio.resume();
   overlay(null); $('pause').disabled = $('jump').disabled = false;
   $('jump').focus({ preventScroll:true }); announce('이어서 산책해요.');
 }
 function showStart() {
-  endJump();
+  endJump(); audio.stop();
   scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
   scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
@@ -101,21 +90,27 @@ function finish() {
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
-  const won = game.status === 'won', key = `best_${game.mode}`;
+  const won = game.status === 'won', key = `score_v5_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
-  saved[key] = Math.max(previous,game.snacks); saved.mode=mode; saved.paceVersion=4; save();
+  saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
   $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
-  $('result-title').textContent = won ? '잘 다녀왔어요!' : '잠깐 쉬어 갈까요?';
-  $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 상자 ${game.cleared || 0}개 통과`;
-  $('record').textContent = `${game.snacks>previous?'새 기록! ':''}${MODES[mode].label} 최고 간식 ${saved[key]}개`;
+  $('result-title').textContent = won ? '달빛 정원 도착!' : '다시 달려볼까요?';
+  $('result-score').textContent = game.score.toLocaleString();
+  const medal = won ? (game.hitCount === 0 ? 3 : game.hearts >= 2 ? 2 : 1) : 0;
+  $('result-rating').textContent = `${'★'.repeat(medal)}${'☆'.repeat(3-medal)} · ${won ? (medal===3?'완벽한 달리기!':'코스 완주!'):'다음엔 더 멀리!'}`;
+  $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 별 ${game.stars}개 · 최장 ${game.bestStreak}연속`;
+  $('record').textContent = `${game.score>previous?'새 기록! ':''}${MODES[mode].label} 최고 ${saved[key].toLocaleString()}점`;
   overlay('result-card'); $('again').focus({preventScroll:true});
-  announce(`${$('result-title').textContent}. ${$('result-copy').textContent}`); beep(won?880:330,.22);
+  announce(`${$('result-title').textContent}. ${$('result-copy').textContent}`);
+  audio.stop(); if(won) { audio.play('finish'); scene.finishEffect(); }
 }
 function toast(text, duration=1.5) {
   $('course-toast').textContent=text; $('course-toast').classList.add('visible'); toastUntil=game.elapsed+duration;
 }
 function updateHUD() {
   const seconds=Math.max(0,Math.ceil(ROUND_SECONDS-game.elapsed));
+  $('score').textContent=game.score.toLocaleString();
+  $('combo').textContent=game.streak>0?`${game.streak} COMBO`:'—';
   if(seconds!==lastSecond) {
     $('time').replaceChildren(document.createTextNode(String(seconds)),Object.assign(document.createElement('span'),{textContent:'초'}));
     document.querySelector('.progress').setAttribute('aria-valuenow',String(Math.floor(game.elapsed))); lastSecond=seconds;
@@ -137,18 +132,18 @@ function updateHUD() {
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
   let text='';
   if(game.elapsed<noticeUntil)text='괜찮아요! 계속 가요';
-  else if(away<jumpCueSeconds(game.mode))text='지금 톡!  ↑';
-  else if(away<1.3)text='앞에 상자가 있어요';
+  else if(away<jumpCueSeconds(game.mode,next))text=next.taps===2?(game.jumpCount===1?'지금 한 번 더! ↑↑':'두 번 톡! ↑↑'):'지금 톡! ↑';
+  else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
 }
 function handleEvent(event) {
-  if(event.type==='snack') {scene.collectEffect(event.x,event.y);beep(680+(game.snacks%4)*90,.055,.018);}
+  if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
   if(event.type==='land') scene.landEffect();
-  if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); beep(720,.1,.025); }
+  if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); audio.play('boost'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
-  if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();beep(180,.16,.035);announce(`상자에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
+  if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();audio.play('hit');announce(`장애물에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
 }
 for(const input of document.querySelectorAll('[name="mode"]')) {
   input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
@@ -178,108 +173,168 @@ document.addEventListener('keydown',event=>{
 });
 document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code==='ArrowUp')endJump(`key:${event.code}`);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
-$('sound').addEventListener('click',()=>{soundOn=!soundOn;$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';beep();});
+$('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'){audio.resume();audio.play('collect');}});
 document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
 document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 산책 · 기운 3개 · 점프 버튼 하나`;
 
 function bootPhaser() {
-  const Phaser=window.Phaser;
+  const Phaser = window.Phaser;
   class RunnerScene extends Phaser.Scene {
-    constructor(){super('Runner');this.boxes=new Map();this.treats=new Map();this.fx=[];this.lastFootstep=0;}
-    preload(){this.load.image('fuwa','./assets/fuwa-generated.png');this.load.on('loaderror',()=>{loaded=false;$('start').textContent='그림을 불러오지 못했어요';announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.');});}
-    create(){
-      scene=this;
-      if(!this.textures.exists('fuwa'))return;
-      this.textures.get('fuwa').add('trimmed',0,51,96,1449,810);
-      this.makeTextures();
-      this.sky=this.add.tileSprite(0,0,this.scale.width,400,'sky').setOrigin(0).setDepth(-10);
-      this.houses=this.add.tileSprite(0,122,this.scale.width,216,'houses').setOrigin(0).setDepth(-8);
-      this.wall=this.add.tileSprite(0,286,this.scale.width,52,'wall').setOrigin(0).setDepth(-5);
-      this.road=this.add.tileSprite(0,GROUND,this.scale.width,400-GROUND,'road').setOrigin(0).setDepth(-4);
-      this.moon=this.add.circle(this.scale.width*.79,64,25,0xf4e4ad).setAlpha(.94).setDepth(-9);
-      this.moonShade=this.add.circle(this.scale.width*.79-9,57,23,0x2d444d).setDepth(-9);
-      this.shadow=this.add.ellipse(CAT_X+65,GROUND+4,112,12,0x1a3537,.22).setDepth(1);
-      this.cat=this.add.image(CAT_X+66,GROUND+2,'fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setDepth(10);
-      this.ring=this.add.ellipse(CAT_X+70,GROUND-47,142,108).setStrokeStyle(3,0xffebad,.95).setVisible(false).setDepth(11);
-      this.finishGate=this.add.container(this.scale.width+100,GROUND).setDepth(3);
-      const pole1=this.add.rectangle(0,-40,8,80,0x4d6e5d),pole2=this.add.rectangle(100,-40,8,80,0x4d6e5d);
-      const banner=this.add.rectangle(50,-73,112,29,0xf1d796).setStrokeStyle(2,0x8b7445);
-      const label=this.add.text(50,-73,'도착!',{fontFamily:'sans-serif',fontSize:'17px',fontStyle:'bold',color:'#435a40'}).setOrigin(.5);
-      this.finishGate.add([pole1,pole2,banner,label]);
-      // Native Pointer Events unify mouse, pen and real touch tap edges.
-      this.scale.on('resize',size=>{for(const layer of [this.sky,this.houses,this.wall,this.road])layer.setSize(size.width,layer.height);this.moon.x=size.width*.79;this.moonShade.x=size.width*.79-9;game.width=size.width;});
-      loaded=true;$('start').disabled=false;$('start').innerHTML='산책 시작 <span aria-hidden="true">→</span>';
-      this.resetRun();updateHUD();
+    constructor() { super('Runner'); this.boxes = new Map(); this.treats = new Map(); this.fx = []; this.lastFootstep = 0; this.landAt = -1; }
+    preload() {
+      this.load.image('fuwa', './assets/fuwa-generated.png');
+      this.load.image('motion', './assets/fuwa-motion-v1.png');
+      this.load.image('alley', './assets/moonlit-alley-v1.png');
+      this.load.on('loaderror', () => { loaded = false; $('start').textContent = '그림을 불러오지 못했어요'; announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.'); });
     }
-    makeTextures(){
-      const sky=this.textures.createCanvas('sky',1200,400),c=sky.context;
-      const grad=c.createLinearGradient(0,0,0,400);grad.addColorStop(0,'#263c48');grad.addColorStop(1,'#617b72');c.fillStyle=grad;c.fillRect(0,0,1200,400);
-      for(let i=0;i<47;i++){const x=(i*127+31)%1200,y=21+(i*41)%164;c.fillStyle=i%4?'#a7bbb4':'#e6dcad';c.fillRect(x,y,i%4?1.5:2.5,i%4?1.5:2.5);}sky.refresh();
-      const g=this.make.graphics({x:0,y:0,add:false});
-      for(let i=0;i<6;i++){
-        const x=i*200,y=62+(i%3)*20,w=111+(i%2)*30;g.fillStyle([0x385458,0x3e5c5e,0x456461][i%3]);g.fillRoundedRect(x,y,w,220-y,4);g.fillTriangle(x-6,y+4,x+w/2,y-28,x+w+6,y+4);
-        for(let j=0;j<2;j++){g.fillStyle(i%2?0xd4ba78:0xb9bb83,.78);g.fillRoundedRect(x+20+j*40,y+24,19,26,2);g.lineStyle(2,0x6e7b66);g.lineBetween(x+29+j*40,y+24,x+29+j*40,y+50);g.lineBetween(x+20+j*40,y+36,x+39+j*40,y+36);}
-      }g.generateTexture('houses',1200,216);g.clear();
-      g.fillStyle(0x587b70);g.fillRect(0,0,160,52);g.fillStyle(0x86a185);g.fillRect(0,0,160,6);g.fillStyle(0x6a8a79);g.fillRect(8,25,55,2);g.fillRect(83,25,55,2);g.fillRect(38,6,2,19);g.fillRect(115,27,2,25);g.generateTexture('wall',160,52);g.clear();
-      g.fillStyle(0xc4caaa);g.fillRect(0,0,200,62);g.fillStyle(0xf0e7bd);g.fillRect(0,0,200,5);g.fillStyle(0x9fae90);g.fillRect(0,5,200,3);g.fillRoundedRect(12,31,49,3,2);g.fillRoundedRect(111,45,33,3,2);g.generateTexture('road',200,62);g.clear();
-      g.fillStyle(0x263f36,.15);g.fillEllipse(28,48,52,9);g.fillStyle(0xd69668);g.fillRoundedRect(4,4,44,42,5);g.lineStyle(2,0x76513a);g.strokeRoundedRect(4,4,44,42,5);g.fillStyle(0xeebc88);g.fillRoundedRect(7,7,38,8,3);g.fillStyle(0xf1d8a5);g.fillRect(22,5,9,40);g.lineStyle(2,0x805b3c);g.lineBetween(11,30,16,24);g.lineBetween(16,24,21,30);g.generateTexture('box',56,55);g.clear();
-      g.fillStyle(0xffd276);g.fillTriangle(4,7,4,25,17,16);g.fillEllipse(25,16,29,20);g.lineStyle(2,0x9d722b);g.strokeEllipse(25,16,29,20);g.fillStyle(0xffedb6);g.fillEllipse(23,12,12,3);g.fillStyle(0x77552d);g.fillCircle(32,14,1.8);g.generateTexture('treat',44,32);g.clear();
-      g.fillStyle(0xffe4a1);g.fillCircle(5,5,4);g.generateTexture('spark',10,10);g.destroy();
-    }
-    resetRun(){
-      this.tweens.killAll();for(const item of this.fx)item.destroy();this.fx=[];
-      for(const item of this.boxes.values())item.destroy();for(const item of this.treats.values())item.destroy();this.boxes.clear();this.treats.clear();
-      if(this.cat){this.cat.setAngle(0).setAlpha(1).clearTint();this.cat.setDisplaySize(174,97.3);}
-      this.lastFootstep=0;this.finishGate?.setVisible(false);
-    }
-    puff(x,y,count=4,color=0xf6e4b8){
-      if(reducedMotion.matches)return;
-      for(let i=0;i<count;i++) {const dot=this.add.circle(x,y,2+(i%3),color,.8).setDepth(13);this.fx.push(dot);
-        this.tweens.add({targets:dot,x:x-16+i*9,y:y-12-(i%3)*6,alpha:0,scale:.2,duration:350+i*20,onComplete:()=>{dot.destroy();this.fx=this.fx.filter(o=>o!==dot);}});}
-    }
-    jumpEffect(){this.puff(CAT_X+66,GROUND-3,5);}
-    landEffect(){this.puff(CAT_X+66,GROUND-1,5,0xc6b995);}
-    collectEffect(x,y){
-      this.puff(x,y,6,0xffdf8d);
-      const label=this.add.text(x,y-15,'+1',{fontFamily:'sans-serif',fontSize:'19px',fontStyle:'bold',color:'#fff0b9',stroke:'#4a6251',strokeThickness:3}).setOrigin(.5).setDepth(15);this.fx.push(label);
-      this.tweens.add({targets:label,y:y-48,alpha:0,duration:650,onComplete:()=>{label.destroy();this.fx=this.fx.filter(o=>o!==label);}});
-    }
-    clearEffect(x,y){if(game.streak%3===0)this.puff(CAT_X+80,GROUND-game.y-70,8,0xe5f4b9);}
-    hitEffect(){if(!reducedMotion.matches)this.cameras.main.shake(90,.0015);this.puff(CAT_X+96,GROUND-24,5,0xf7bd8b);}
-    syncObjects(){
-      const boxes=new Set(game.obstacles.map(o=>o.id));for(const [id,sprite] of this.boxes)if(!boxes.has(id)){sprite.destroy();this.boxes.delete(id);}
-      for(const box of game.obstacles){const sx=box.w/44,sy=box.h/42;let sprite=this.boxes.get(box.id);if(!sprite){sprite=this.add.image(0,0,'box').setOrigin(0,1).setDepth(5);this.boxes.set(box.id,sprite);}sprite.setPosition(box.x-4*sx,GROUND+9*sy).setScale(sx,sy).setAlpha(box.hit?.55:1);}
-      const treats=new Set(game.treats.map(t=>t.id));for(const [id,sprite] of this.treats)if(!treats.has(id)){sprite.destroy();this.treats.delete(id);}
-      for(const treat of game.treats){let sprite=this.treats.get(treat.id);if(!sprite){sprite=this.add.image(treat.x,treat.y,'treat').setDepth(6);this.treats.set(treat.id,sprite);}sprite.setPosition(treat.x,treat.y);sprite.setScale(1+(reducedMotion.matches?0:Math.sin(visualClock*5+(treat.id||0))*.035));}
-    }
-    update(time,delta){
-      if(!loaded)return;
-      if(game.status==='running'){
-        visualClock+=Math.min(delta/1000,.1);let remaining=Math.min(delta/1000,.1);
-        while(remaining>0){const dt=Math.min(remaining,1/120);step(game,dt);for(const event of game.events||[])handleEvent(event);remaining-=dt;if(game.status!=='running')break;}
-        updateHUD();if(game.status==='won'||game.status==='finished')finish();
+    create() {
+      scene = this;
+      if (!['fuwa', 'motion', 'alley'].every(key => this.textures.exists(key))) return;
+      this.textures.get('fuwa').add('trimmed', 0, 51, 96, 1449, 810);
+      const atlas = this.textures.get('motion');
+      // Equal normalized cells, using rounded shared edges. Common registration
+      // preserves the real flight poses instead of grounding every paw separately.
+      for (let i = 0; i < 8; i++) {
+        const x = Math.round((i % 4) * 443.5), next = Math.round((i % 4 + 1) * 443.5);
+        atlas.add(`pose-${i}`, 0, x, Math.round(Math.floor(i / 4) * 443.5) + 65, next - x, 310);
       }
-      const moving=game.status==='running', bob=moving&&game.y===0&&!reducedMotion.matches?Math.sin(visualClock*15)*2:0;
-      this.cat.setPosition(CAT_X+66,GROUND-game.y+2+bob);
-      const scaleX=game.y>0?1.02:1,scaleY=game.y>0?.98:1;
-      this.cat.setDisplaySize(174*scaleX,97.3*scaleY).setAngle(game.y>0&&!reducedMotion.matches?-Math.max(-7,Math.min(7,game.vy/100)):0);
-      this.shadow.setScale(Math.max(.45,1-game.y/420),1).setAlpha(.25-game.y/1400);
-      this.ring.setPosition(CAT_X+70,GROUND-game.y-47).setVisible(game.invincible>0);
-      this.cat.setAlpha(game.invincible>0?.84:1);
-      const distance=reducedMotion.matches?0:game.distance;
-      this.houses.tilePositionX=distance*.13;this.wall.tilePositionX=distance*.38;this.road.tilePositionX=distance;
+      this.makeTextures();
+      this.backdrop = this.add.image(0, 0, 'alley').setOrigin(0).setDepth(-12);
+      this.moonGlow = this.add.circle(this.scale.width * .8, 60, 40, 0xf4d99e, .06).setDepth(-11);
+      this.moon = this.add.circle(this.scale.width * .8, 60, 19, 0xffeac2, .86).setDepth(-10);
+      this.moonShade = this.add.circle(this.scale.width * .8 - 7, 54, 18, 0x143b4b).setDepth(-10);
+      this.fence = this.add.tileSprite(0, GROUND - 32, this.scale.width, 32, 'fence').setOrigin(0).setDepth(-5);
+      this.road = this.add.tileSprite(0, GROUND, this.scale.width, 62, 'road').setOrigin(0).setDepth(-3);
+      this.lamps = Array.from({length: 5}, () => this.add.image(0, GROUND - 23, 'lamp').setOrigin(.5, 1).setDepth(-6));
+      this.fireflies = Array.from({length: 15}, (_, i) => this.add.circle((i * 137 + 40) % this.scale.width, 90 + (i * 43) % 170, i % 3 ? 1.5 : 2.2, 0xffdfa0, .25).setDepth(-4));
+      this.shadow = this.add.ellipse(CAT_X + 65, GROUND + 5, 115, 13, 0x08252b, .36).setDepth(1);
+      this.cat = this.add.image(CAT_X + 66, GROUND + 2, 'fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setDepth(10);
+      this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
+      this.finishGate = this.add.container(0, GROUND).setDepth(4);
+      this.finishGate.add(this.add.image(0, 0, 'garden-gate').setOrigin(.5, 1));
+      this.finishGate.add(this.add.text(0, -125, '달빛 정원', {fontFamily: 'sans-serif', fontSize: '18px', fontStyle: 'bold', color: '#ffedc7'}).setOrigin(.5));
+      const resize = size => {
+        const backgroundWidth = Math.max(1200, size.width + 220);
+        this.backdrop.setDisplaySize(backgroundWidth, backgroundWidth / 3).setY(400 - backgroundWidth / 3);
+        this.fence.setSize(size.width, 32); this.road.setSize(size.width, 62);
+        this.moon.x = this.moonGlow.x = size.width * .8; this.moonShade.x = size.width * .8 - 7;
+        game.width = size.width;
+      };
+      this.scale.on('resize', resize); resize(this.scale);
+      loaded = true; $('start').disabled = false; $('start').innerHTML = '달리기 시작 <span aria-hidden="true">→</span>';
+      this.resetRun(); updateHUD();
+    }
+    makeTextures() {
+      const make = (name, w, h, draw) => { const t = this.textures.createCanvas(name, w, h); draw(t.context); t.refresh(); };
+      const rounded = (c, x, y, w, h, r, fill, stroke) => { c.beginPath(); c.roundRect(x, y, w, h, r); c.fillStyle = fill; c.fill(); if (stroke) { c.strokeStyle = stroke; c.lineWidth = 2; c.stroke(); } };
+      const star = (c, x, y, r, color) => { c.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, radius = i % 2 ? r * .46 : r; const px = x + Math.cos(a) * radius, py = y + Math.sin(a) * radius; i ? c.lineTo(px, py) : c.moveTo(px, py); } c.closePath(); c.fillStyle = color; c.fill(); };
+      const crate = (c, x, y, w, h) => {
+        const g = c.createLinearGradient(x, y, x, y + h); g.addColorStop(0, '#e7b97e'); g.addColorStop(1, '#a86b45');
+        rounded(c, x, y, w, h, 3, g, '#5a3c31');
+        c.strokeStyle = '#895b3f'; c.lineWidth = 1.3;
+        for (const offset of [.33, .67]) { c.beginPath(); c.moveTo(x + 2, y + h * offset); c.lineTo(x + w - 2, y + h * offset); c.stroke(); }
+        rounded(c, x + w * .41, y + 1, w * .18, h - 2, 1, '#efcf9a');
+        c.fillStyle = '#694a33'; for (const xx of [x + 5, x + w - 5]) for (const yy of [y + 5, y + h - 5]) c.fillRect(xx, yy, 1.5, 1.5);
+      };
+      make('crate', 54, 42, c => { c.fillStyle = '#08252b55'; c.beginPath(); c.ellipse(27, 35, 25, 5, 0, 0, Math.PI * 2); c.fill(); crate(c, 8, 2, 38, 30); });
+      make('stack', 60, 124, c => {
+        c.fillStyle = '#08252b55'; c.beginPath(); c.ellipse(30, 117, 29, 5, 0, 0, Math.PI * 2); c.fill();
+        crate(c, 8, 2, 44, 36); crate(c, 8, 40, 44, 36); crate(c, 8, 78, 44, 36);
+        c.strokeStyle = '#fff1bc'; c.lineWidth = 3; c.lineCap = 'round';
+        for (const y of [50, 61]) { c.beginPath(); c.moveTo(22, y + 5); c.lineTo(30, y - 2); c.lineTo(38, y + 5); c.stroke(); }
+      });
+      make('planter', 94, 54, c => {
+        c.fillStyle = '#08252b55'; c.beginPath(); c.ellipse(47, 47, 44, 5, 0, 0, Math.PI * 2); c.fill();
+        rounded(c, 9, 17, 76, 27, 4, '#a66150', '#563b38'); rounded(c, 8, 16, 78, 8, 3, '#dc9b75', '#70493c');
+        c.strokeStyle = '#cb8465'; c.lineWidth = 2; for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(19 + i * 14, 26); c.lineTo(21 + i * 14, 42); c.stroke(); }
+        for (let i = 0; i < 9; i++) { c.fillStyle = i % 2 ? '#73996c' : '#99b181'; c.beginPath(); c.ellipse(15 + i * 8, 13 - i % 3 * 3, 9, 5, i % 2 ? .7 : -.7, 0, Math.PI * 2); c.fill(); }
+        for (const x of [28, 59, 72]) { c.fillStyle = '#f0cca1'; c.beginPath(); c.arc(x, 8, 3, 0, Math.PI * 2); c.fill(); }
+      });
+      make('fish', 44, 32, c => {
+        c.shadowColor = '#ffcc6d'; c.shadowBlur = 7; c.fillStyle = '#ffd478'; c.beginPath(); c.moveTo(4, 7); c.lineTo(4, 25); c.lineTo(18, 16); c.fill();
+        c.beginPath(); c.ellipse(26, 16, 14, 10, 0, 0, Math.PI * 2); c.fill(); c.shadowBlur = 0; c.strokeStyle = '#9d722b'; c.lineWidth = 1.5; c.stroke();
+        c.fillStyle = '#fff2c8'; c.beginPath(); c.ellipse(24, 12, 7, 2, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = '#6c4b25'; c.beginPath(); c.arc(33, 14, 1.8, 0, Math.PI * 2); c.fill();
+      });
+      make('star', 48, 48, c => { c.shadowColor = '#ffe6a1'; c.shadowBlur = 12; star(c, 24, 24, 17, '#ffdb7c'); c.shadowBlur = 0; star(c, 24, 23, 10, '#fff2bc'); });
+      make('fence', 240, 32, c => { c.fillStyle = '#183d40'; c.fillRect(0, 0, 240, 32); c.fillStyle = '#4e6c60'; c.fillRect(0, 0, 240, 3); c.strokeStyle = '#34534e'; c.lineWidth = 1; for (let x = 0; x < 240; x += 60) { c.strokeRect(x, 4, 60, 12); c.strokeRect(x - 30, 18, 60, 13); } });
+      make('road', 320, 62, c => {
+        const g = c.createLinearGradient(0, 0, 0, 62); g.addColorStop(0, '#75918a'); g.addColorStop(1, '#365b61'); c.fillStyle = g; c.fillRect(0, 0, 320, 62);
+        c.fillStyle = '#c4c3a3'; c.fillRect(0, 0, 320, 4); c.fillStyle = '#264e55'; c.fillRect(0, 5, 320, 3);
+        c.strokeStyle = '#9baba044'; c.lineWidth = 1; for (let i = 0; i < 5; i++) { c.strokeRect(i * 75 - 25, 13, 72, 16); c.strokeRect(i * 75 + 12, 34, 72, 18); }
+      });
+      make('lamp', 100, 215, c => {
+        const glow = c.createRadialGradient(50, 43, 1, 50, 43, 45); glow.addColorStop(0, '#ffd58f33'); glow.addColorStop(1, '#ffd58f00'); c.fillStyle = glow; c.fillRect(0, 0, 100, 100);
+        rounded(c, 47, 46, 6, 169, 2, '#284647'); rounded(c, 35, 17, 30, 43, 5, '#edc080', '#293f41');
+        c.fillStyle = '#fff1bd'; c.fillRect(40, 23, 20, 31); c.strokeStyle = '#8c7654'; c.beginPath(); c.moveTo(50, 19); c.lineTo(50, 59); c.stroke();
+        rounded(c, 31, 13, 38, 7, 3, '#355052'); rounded(c, 33, 60, 34, 6, 3, '#355052');
+      });
+      make('garden-gate', 200, 175, c => {
+        for (const x of [25, 163]) rounded(c, x, 28, 12, 147, 4, '#42695b', '#173e42');
+        rounded(c, 15, 20, 170, 45, 8, '#30554c', '#9da77a');
+        c.strokeStyle = '#739373'; c.lineWidth = 3; c.beginPath(); c.moveTo(18, 172); c.quadraticCurveTo(0, 10, 100, 5); c.quadraticCurveTo(200, 10, 182, 172); c.stroke();
+        for (let i = 0; i < 14; i++) { const x = i % 2 ? 180 : 20, y = 35 + i * 9; c.fillStyle = i % 3 ? '#799966' : '#a3b77c'; c.beginPath(); c.ellipse(x + (i % 3 - 1) * 8, y, 12, 5, i % 2 ? -.6 : .6, 0, Math.PI * 2); c.fill(); }
+      });
+    }
+    resetRun() {
+      this.tweens.killAll(); for (const item of this.fx) item.destroy(); this.fx = [];
+      for (const item of this.boxes.values()) item.destroy(); for (const item of this.treats.values()) item.destroy(); this.boxes.clear(); this.treats.clear();
+      this.lastFootstep = 0; this.landAt = -1; this.finishGate?.setVisible(false);
+      this.cat?.setAngle(0).setAlpha(1).clearTint();
+    }
+    puff(x, y, count = 4, color = 0xf6e4b8) {
+      if (reducedMotion.matches) return;
+      for (let i = 0; i < count; i++) { const dot = this.add.circle(x, y, 2 + i % 3, color, .85).setDepth(13); this.fx.push(dot);
+        this.tweens.add({targets: dot, x: x - 22 + i * 7, y: y - 14 - i % 3 * 7, alpha: 0, scale: .2, duration: 340 + i * 15, onComplete: () => this.removeEffect(dot)}); }
+    }
+    removeEffect(item) { item.destroy(); this.fx = this.fx.filter(o => o !== item); }
+    jumpEffect() { this.puff(CAT_X + 66, GROUND - 2, 6); }
+    landEffect() { this.landAt = visualClock; this.puff(CAT_X + 66, GROUND - 1, 6, 0xa5b8aa); }
+    collectEffect(x, y, value = 10, kind = 'fish') {
+      this.puff(x, y, kind === 'star' ? 10 : 5, kind === 'star' ? 0xffe6a1 : 0xffdf8d);
+      const label = this.add.text(x, y - 10, `+${value}`, {fontFamily: 'sans-serif', fontSize: kind === 'star' ? '23px' : '17px', fontStyle: 'bold', color: '#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
+      this.tweens.add({targets: label, y: y - 45, alpha: 0, duration: 600, onComplete: () => this.removeEffect(label)});
+    }
+    clearEffect() { if (game.streak % 3 === 0) this.puff(CAT_X + 80, GROUND - game.y - 70, 8, 0xe5f4b9); }
+    hitEffect() { if (!reducedMotion.matches) this.cameras.main.shake(100, .002); this.puff(CAT_X + 96, GROUND - game.y - 24, 7, 0xf7bd8b); }
+    finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, 150, 14, 0xffd88f); this.puff(this.scale.width * .75, 150, 14, 0xbfd9a8); } }
+    syncObjects() {
+      const boxes = new Set(game.obstacles.map(o => o.id)); for (const [id, sprite] of this.boxes) if (!boxes.has(id)) { sprite.destroy(); this.boxes.delete(id); }
+      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.add.image(0, 0, box.kind || 'crate').setOrigin(0, 1).setDepth(5); this.boxes.set(box.id, sprite); } sprite.setPosition(box.x - 8, GROUND + 10).setAlpha(box.hit ? .5 : 1); }
+      const treats = new Set(game.treats.map(t => t.id)); for (const [id, sprite] of this.treats) if (!treats.has(id)) { sprite.destroy(); this.treats.delete(id); }
+      for (const treat of game.treats) { let sprite = this.treats.get(treat.id); if (!sprite) { sprite = this.add.image(treat.x, treat.y, treat.kind || 'fish').setDepth(6); this.treats.set(treat.id, sprite); } const pulse = reducedMotion.matches ? 1 : 1 + Math.sin(visualClock * 5 + treat.id) * .05; sprite.setPosition(treat.x, treat.y).setScale(pulse); if (treat.kind === 'star') sprite.setAngle(reducedMotion.matches ? 0 : Math.sin(visualClock * 3) * 9); }
+    }
+    update(time, delta) {
+      if (!loaded) return;
+      if (game.status === 'running') {
+        visualClock += Math.min(delta / 1000, .1); let remaining = Math.min(delta / 1000, .1);
+        while (remaining > 0) { const dt = Math.min(remaining, 1 / 120); step(game, dt); for (const event of game.events || []) handleEvent(event); remaining -= dt; if (game.status !== 'running') break; }
+        updateHUD(); if (game.status === 'won' || game.status === 'finished') finish();
+      }
+      const running = game.status === 'running', activePose = game.status === 'running' || game.status === 'paused';
+      if (activePose) {
+        const pose = game.y > 0 ? (game.vy > 0 ? 6 : 7) : Math.floor(visualClock * 13 * MODES[game.mode].speed / 360) % 6;
+        this.cat.setTexture('motion', `pose-${pose}`).setOrigin(.5, 295 / 310).setScale(.42).setAngle(0);
+      } else this.cat.setTexture('fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setAngle(0);
+      this.cat.setPosition(CAT_X + 66, GROUND - game.y + 1);
+      this.cat.setAlpha(game.invincible > 0 ? .72 : 1);
+      this.shadow.setScale(Math.max(.42, 1 - game.y / 400), 1).setAlpha(.34 - game.y / 1000);
+      this.ring.setPosition(CAT_X + 70, GROUND - game.y - 47).setVisible(game.invincible > 0);
+      const distance = reducedMotion.matches ? 0 : game.distance;
+      this.backdrop.x = -Math.min(200, distance * .012); this.fence.tilePositionX = distance * .4; this.road.tilePositionX = distance;
+      for (let i = 0; i < this.lamps.length; i++) this.lamps[i].x = ((i * 340 + 240 - distance * .32) % 1700 + 1700) % 1700 - 100;
+      for (let i = 0; i < this.fireflies.length; i++) { const dot = this.fireflies[i]; dot.x = ((i * 137 + 40 - distance * .08) % (this.scale.width + 40) + this.scale.width + 40) % (this.scale.width + 40); dot.y = 90 + (i * 43) % 170 + (reducedMotion.matches ? 0 : Math.sin(visualClock * .8 + i) * 7); dot.setAlpha(.18 + (reducedMotion.matches ? .1 : Math.sin(visualClock * 1.5 + i) * .12 + .12)); }
       this.syncObjects();
-      if(moving&&game.y===0&&!reducedMotion.matches&&visualClock-this.lastFootstep>.19){this.lastFootstep=visualClock;this.puff(CAT_X+42,GROUND,2,0xded4ae);}
-      const gateX=CAT_X+140+(ROUND_SECONDS-game.elapsed)*MODES[game.mode].speed;
-      this.finishGate.setPosition(gateX,GROUND).setVisible(gateX<this.scale.width+140);
+      if (running && game.y === 0 && visualClock - this.lastFootstep > .16) { this.lastFootstep = visualClock; this.puff(CAT_X + 42, GROUND, 2, 0xc0c1a8); }
+      const gateX = CAT_X + 160 + (ROUND_SECONDS - game.elapsed) * MODES[game.mode].speed;
+      this.finishGate.setPosition(gateX, GROUND).setVisible(gateX < this.scale.width + 140);
     }
   }
-  const width=Math.max(440,Math.round($('scene').clientWidth));
-  renderer=new Phaser.Game({type:Phaser.AUTO,parent:'game-canvas',width,height:400,transparent:true,antialias:true,roundPixels:false,
-    scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_HORIZONTALLY},scene:RunnerScene,
-    input:{activePointers:2},audio:{noAudio:true},fps:{target:60,forceSetTimeOut:false},banner:false});
-  let oldWidth=width;
-  new ResizeObserver(()=>{const next=Math.max(440,Math.round($('scene').clientWidth));if(next!==oldWidth){pause();oldWidth=next;renderer.scale.setGameSize(next,400);}renderer.scale.refresh();}).observe($('scene'));
+  const width = Math.max(440, Math.round($('scene').clientWidth));
+  renderer = new Phaser.Game({type: Phaser.AUTO, parent: 'game-canvas', width, height: 400, transparent: true, antialias: true, roundPixels: false,
+    scale: {mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_HORIZONTALLY}, scene: RunnerScene,
+    input: {activePointers: 2}, audio: {noAudio: true}, fps: {target: 60, forceSetTimeOut: false}, banner: false});
+  let oldWidth = width;
+  new ResizeObserver(() => { const next = Math.max(440, Math.round($('scene').clientWidth)); if (next !== oldWidth) { pause(); oldWidth = next; renderer.scale.setGameSize(next, 400); } renderer.scale.refresh(); }).observe($('scene'));
 }
-if(window.Phaser)bootPhaser();else {$('start').textContent='게임을 불러오지 못했어요';announce('게임 파일을 불러오지 못했어요. 새로고침해 주세요.');}
+if (window.Phaser) bootPhaser(); else { $('start').textContent = '게임을 불러오지 못했어요'; announce('게임 파일을 불러오지 못했어요. 새로고침해 주세요.'); }
 updateHUD();

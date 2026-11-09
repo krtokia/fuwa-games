@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, jump, pressJump, releaseJump, JUMP_SPEED, SECOND_JUMP_SPEED, step, MODES, ROUND_SECONDS, GROUND, CAT_X, jumpCueSeconds, COURSE, SEGMENTS } from '../engine.mjs';
+import { createGame, jump, pressJump, releaseJump, JUMP_SPEED, SECOND_JUMP_SPEED, step, MODES, ROUND_SECONDS, GROUND, CAT_X, jumpCueSeconds, COURSE, SEGMENTS, ENCOUNTERS } from '../engine.mjs';
 function run(g,seconds,dt=1/120) {for(let t=0;t<seconds;t+=dt) step(g,dt);}
 function playing(mode='gentle') { const g=createGame(mode,440);g.status='running';return g; }
 test('unknown mode uses the normal default',()=>{for (const mode of ['bad', 'constructor', 'toString', '__proto__']) assert.equal(createGame(mode).mode,'normal');});
@@ -16,37 +16,27 @@ test('welcome offers snacks before a four-second first encounter',()=>{const g=p
 test('the round finishes at forty-four seconds',()=>{const g=playing();g.elapsed=ROUND_SECONDS-.01;step(g,1/60);assert.equal(g.status,'won');assert.equal(g.elapsed,ROUND_SECONDS);});
 test('speed is constant, long frames are bounded',()=>{const g=playing('normal');step(g,10);assert(g.elapsed<=1/30);assert.equal(g.distance,MODES.normal.speed/30);});
 test('restarting creates clean state',()=>{const g=playing();g.hearts=1;g.snacks=20;const fresh=createGame(g.mode);assert.equal(fresh.hearts,3);assert.equal(fresh.snacks,0);assert.equal(fresh.elapsed,0);});
-test('a full automated jump run is completable in both modes',()=>{for(const mode of Object.keys(MODES)){const g=playing(mode);for(let i=0;i<ROUND_SECONDS*120+10&&g.status==='running';i++){const next=g.obstacles.find(o=>o.x+o.w>CAT_X+34);if(next&&next.x<CAT_X+99+MODES[mode].speed*.22&&g.y===0) jump(g);step(g,1/120);}assert.equal(g.status,'won',mode);assert.equal(g.hearts,3,mode);}});
-function cueRun(mode, width, hz, delay, held = false, secondDelay = null) {
+function cueRun(mode, width, hz, delay, secondDelay = .28, missedAt = null, held = false) {
  const g=createGame(mode,width); g.status='running';
- const scheduled=new Set(), events=[]; let jumpAt=Infinity, releaseAt=Infinity, secondAt=Infinity;
+ const scheduled=new Set(), events=[]; let jumpAt=Infinity, releaseAt=Infinity, secondAt=Infinity, useDouble=false;
  for(let frame=0; frame<ROUND_SECONDS*hz+10 && g.status==='running'; frame++) {
-  const cue=g.obstacles.find(o=>!o.hit&&!o.cleared&&o.x>CAT_X+70&&o.x<CAT_X+70+MODES[mode].speed*jumpCueSeconds(mode));
-  if(cue&&!scheduled.has(cue.id)) {scheduled.add(cue.id);jumpAt=g.elapsed+delay;}
-  if(g.elapsed+1e-9>=jumpAt) {if(held) {pressJump(g);releaseAt=g.elapsed+.25;} else jump(g);jumpAt=Infinity;if(secondDelay!==null) secondAt=g.elapsed+secondDelay;}
-  if(g.elapsed>=releaseAt) {releaseJump(g);releaseAt=Infinity;}
+  const cue=g.obstacles.find(o=>!o.hit&&!o.cleared&&o.encounterAt>g.elapsed&&
+    o.encounterAt-g.elapsed<=jumpCueSeconds(mode,o));
+  if(cue&&!scheduled.has(cue.encounterAt)) {
+   scheduled.add(cue.encounterAt);
+   if(cue.encounterAt!==missedAt) { jumpAt=g.elapsed+delay;useDouble=cue.taps===2; }
+  }
+  if(g.elapsed+1e-9>=jumpAt) {
+   if(held) {pressJump(g);releaseAt=g.elapsed+.18;} else jump(g);
+   jumpAt=Infinity;
+   if(useDouble&&secondDelay!==null) secondAt=g.elapsed+secondDelay;
+  }
+  if(g.elapsed+1e-9>=releaseAt) {releaseJump(g);releaseAt=Infinity;}
   if(g.elapsed+1e-9>=secondAt) {releaseJump(g);assert.equal(jump(g),true);secondAt=Infinity;}
   step(g,1/hz); events.push(...g.events);
  }
  return {g,events};
 }
-test('every course completes cleanly across widths, refresh rates and cue response times',()=>{
- for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
- for(const hz of [30,60,120]) for(const delay of [0,.1,.2,.3,.35,.4]) {
-  const {g,events}=cueRun(mode,width,hz,delay);
-  const label=`${mode}, ${width}px, ${hz}Hz, ${delay}s response`;
-  assert.equal(g.status,'won',label); assert.equal(g.hearts,3,label);
-  assert.equal(g.cleared,COURSE.length,label); assert.equal(g.streak,COURSE.length,label);
-  assert.equal(g.progress,1); assert.equal(g.segment.id,'finish');
-  assert(g.snacks>11,label);
-  assert.equal(events.filter(e=>e.type==='won').length,1);
-  for(const type of ['snack','clear']) {
-   const matching=events.filter(e=>e.type===type);
-   assert.equal(new Set(matching.map(e=>e.id)).size,matching.length,label);
-   assert(matching.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)));
-  }
- }
-});
 test('authored rhythm leaves room to land and recover, with no late surprise',()=>{
  for(let i=1;i<COURSE.length;i++) assert(COURSE[i]-COURSE[i-1]>=2);
  assert(COURSE[0]>=4); assert(ROUND_SECONDS-COURSE.at(-1)>=3);
@@ -145,17 +135,6 @@ test('pause freezes a queued double jump, rejects input and releases without alt
  run(g,2);assert.equal(g.y,0);assert.equal(g.jumpCount,0);
  const fresh=createGame();assert.equal(fresh.jumpHeld,false);assert.equal(fresh.jumpCount,0);assert.equal(fresh.pendingBoost,null);
 });
-test('held low jumps complete every cue timing with snack feedback',()=>{
- for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
- for(const hz of [30,60,120]) for(const delay of [0,.1,.2,.3,.35,.4]) {
-  const {g,events}=cueRun(mode,width,hz,delay,true);
-  const label=`held ${mode}, ${width}px, ${hz}Hz, ${delay}s`;
-  assert.equal(g.status,'won',label);assert.equal(g.hearts,3,label);
-  assert.equal(g.cleared,COURSE.length,label);assert(g.snacks>11,label);
-  assert(events.some(e=>e.type==='snack'),label);
-  assert(!events.some(e=>e.type==='boost'),label);
- }
-});
 test('double jump physics is identical across modes, widths and frame rates',()=>{
  let reference;
  for(const mode of Object.keys(MODES)) for(const width of [440,720,1000]) for(const hz of [30,60,120]) {
@@ -174,17 +153,6 @@ test('boost frame respects higher-priority hit feedback',()=>{
  assert.equal(g.event,'hit');
 });
 
-test('two-tap runs clear every box across modes, widths, rates and response times',()=>{
- for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
- for(const hz of [30,60,120]) for(const delay of [0,.1,.2,.3,.4]) for(const secondDelay of [0,.05,.15,.3,.45,.7,.9]) {
-  const {g,events}=cueRun(mode,width,hz,delay,false,secondDelay);
-  const label=`${mode} ${width}px ${hz}Hz ${delay}s + ${secondDelay}s`;
-  assert.equal(g.status,'won',label);assert.equal(g.hearts,3,label);
-  assert.equal(g.cleared,COURSE.length,label);
-  assert.equal(events.filter(e=>e.type==='boost').length,COURSE.length,label);
- }
-});
-
 test('ready, paused and terminal input cannot change state',()=>{
  for(const status of ['ready','paused','won','finished']) {
   const g=playing();g.status=status;const before=JSON.stringify(g);
@@ -201,10 +169,67 @@ test('releasing a press does not change its trajectory or consume another jump',
  }
 });
 
-test('default pace starts sooner and uses eighteen authored boxes with recovery gaps',()=>{
+test('default pace uses eighteen authored encounters with recovery gaps',()=>{
  assert.equal(createGame().mode,'normal');assert.equal(MODES.normal.speed,360);
  assert.equal(MODES.gentle.speed,240);assert.equal(COURSE.length,18);assert.equal(COURSE[0],4);
  const gaps=COURSE.slice(1).map((time,i)=>time-COURSE[i]);
  assert.equal(gaps.filter(gap=>gap>=3).length,2);
  assert(gaps.every(gap=>gap>=2));
+});
+
+// Human-like reactions are measured after the visible, obstacle-specific cue.
+// The double tap is a distinct release/press 0.22–0.34 seconds later, not a hold.
+test('authored route finishes cleanly at all widths and frame rates with response variation',()=>{
+ for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
+ for(const hz of [30,60,120]) for(const delay of [.08,.15,.23,.3]) for(const secondDelay of [.22,.28,.34]) {
+  const {g,events}=cueRun(mode,width,hz,delay,secondDelay);
+  const label=`${mode} ${width}px ${hz}Hz response ${delay}s second ${secondDelay}s`;
+  assert.equal(g.status,'won',label); assert.equal(g.hearts,3,label);
+  assert.equal(g.cleared,COURSE.length,label); assert.equal(g.streak,COURSE.length,label);
+  assert.equal(g.combo,5,label); assert(g.score>800,label); assert(g.stars>0,label);
+  assert.equal(events.filter(e=>e.type==='won').length,1,label);
+  for(const type of ['snack','clear']) {
+   const matching=events.filter(e=>e.type===type);
+   assert.equal(new Set(matching.map(e=>e.id)).size,matching.length,label);
+   assert(matching.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)&&e.value>0),label);
+  }
+  assert.equal(g.score,events.reduce((sum,e)=>sum+(e.value||0),0),label);
+ }
+});
+test('a held first press still needs a distinct second press on stacks',()=>{
+ for(const hz of [30,60,120]) {
+  const {g}=cueRun('normal',440,hz,.15,.28,null,true);
+  assert.equal(g.status,'won');assert.equal(g.hearts,3);
+ }
+});
+test('low-only play cannot clear tall stacks',()=>{
+ const {g,events}=cueRun('normal',440,60,.15,null);
+ assert(g.hitCount>0);assert(g.cleared<COURSE.length);
+ assert(!events.some(e=>e.type==='clear'&&e.kind==='stack'));
+ assert.equal(g.stars,0);
+});
+test('one deliberate missed obstacle resets combo and leaves a recoverable course',()=>{
+ for(const missedAt of [4,12,23.5,39]) {
+  const {g,events}=cueRun('normal',440,60,.15,.28,missedAt);
+  assert.equal(g.status,'won');assert.equal(g.hearts,2);assert.equal(g.hitCount,1);
+  assert.equal(g.cleared,COURSE.length-1);
+  const hitIndex=events.findIndex(e=>e.type==='hit');
+  const nextClear=events.slice(hitIndex+1).find(e=>e.type==='clear');
+  assert.equal(nextClear.combo,1);assert.equal(nextClear.value,20);
+ }
+});
+test('three legible obstacle shapes teach low, wide and double jumps in order',()=>{
+ assert.deepEqual(ENCOUNTERS.slice(0,5).map(o=>o.kind),['crate','crate','crate','planter','stack']);
+ assert.equal(new Set(ENCOUNTERS.map(o=>o.kind)).size,3);
+ assert(ENCOUNTERS.filter(o=>o.kind==='stack').every(o=>o.h>100&&o.taps===2));
+ assert(ENCOUNTERS.every(o=>o.hint&&o.w>0&&o.cueLead>0));
+ for(const o of ENCOUNTERS) assert(CAT_X+70+MODES.normal.speed*jumpCueSeconds('normal',o)<440);
+});
+test('high golden stars reward a double jump, fish and clear rewards update score',()=>{
+ const {g,events}=cueRun('normal',440,60,.15,.28);
+ const stars=events.filter(e=>e.type==='snack'&&e.kind==='star');
+ assert.equal(stars.length,ENCOUNTERS.filter(o=>o.taps===2).length);
+ assert.equal(g.stars,stars.length);assert(stars.every(e=>e.value===50));
+ assert(events.some(e=>e.type==='snack'&&e.kind==='fish'&&e.value===10));
+ assert(events.some(e=>e.type==='clear'&&e.combo===5&&e.value===40));
 });

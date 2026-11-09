@@ -3,7 +3,11 @@ export const MODES = Object.freeze({
   gentle: { label: '천천히', speed: 240, gap: 2 },
   normal: { label: '달리기', speed: 360, gap: 2 },
 });
-export function jumpCueSeconds(mode) { return mode === 'normal' ? .53 : .56; }
+export function jumpCueSeconds(mode, obstacle) {
+  if (obstacle?.taps === 2 || obstacle?.kind === 'stack') return mode === 'normal' ? .78 : .76;
+  if (obstacle?.kind === 'planter') return mode === 'normal' ? .58 : .54;
+  return mode === 'normal' ? .53 : .56;
+}
 export const ROUND_SECONDS = 44;
 export const GROUND = 338;
 export const CAT_X = 76;
@@ -13,6 +17,20 @@ export const JUMP_SPEED = 380;
 export const SECOND_JUMP_SPEED = 380;
 export const FIXED_STEP = 1 / 120;
 export const COURSE = Object.freeze([4, 6, 8, 10, 12, 15.5, 17.5, 19.5, 21.5, 23.5, 27, 29, 31, 33, 35, 37, 39, 41]);
+// First learn the low arc, then a wider landing, then a clearly marked double tap.
+// cueLead is normal-speed lead time; use jumpCueSeconds(mode, obstacle) in UI.
+const PATTERN = ['crate', 'crate', 'crate', 'planter', 'stack',
+  'crate', 'planter', 'stack', 'planter', 'stack',
+  'crate', 'planter', 'stack', 'crate', 'stack', 'planter', 'stack', 'stack'];
+const SHAPES = {
+  crate: { w: 38, h: 30, taps: 1, hint: '상자는 한 번 톡!', cueLead: .53 },
+  planter: { w: 78, h: 42, taps: 1, hint: '넓은 화분도 폴짝!', cueLead: .58 },
+  stack: { w: 44, h: 112, taps: 2, hint: '높은 상자! 톡, 톡!', cueLead: .78 },
+};
+export const ENCOUNTERS = Object.freeze(COURSE.map((encounterAt, index) => Object.freeze({
+  encounterAt, kind: PATTERN[index], ...SHAPES[PATTERN[index]],
+  tutorial: index === 0 || index === 3 || index === 4,
+})));
 export const SEGMENTS = Object.freeze([
   { id: 'welcome', name: '가볍게 시작해요', start: 0, end: 3 },
   { id: 'practice', name: '하나씩 폴짝', start: 3, end: 13 },
@@ -27,7 +45,7 @@ const SNACK_TIMES = [1.8, 2.5, 3.2, 14.6, 15.2, 25.4, 26, 35.4, 36, 42.3, 42.9];
 export function createGame(mode = 'normal', width = 720) {
   if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) mode = 'normal';
   return { mode, width, status: 'ready', elapsed: 0, distance: 0, hearts: 3,
-    snacks: 0, y: 0, vy: 0, invincible: 0,
+    snacks: 0, stars: 0, score: 0, combo: 0, y: 0, vy: 0, invincible: 0,
     jumpHeld: false, jumpCount: 0, pendingBoost: null,
     obstacles: [], treats: [], serial: 0, event: '', events: [], hitCount: 0,
     cleared: 0, streak: 0, bestStreak: 0, segment: SEGMENTS[0], progress: 0,
@@ -92,23 +110,26 @@ function tick(game, dt) {
       emit(game, 'land');
     }
   }
-  // Each authored encounter is when a box's left edge reaches CAT_X + 70.
+  // Each authored encounter is when an obstacle's left edge reaches CAT_X + 70.
   // Encounter positions and timing never depend on the viewport. Wider screens
   // simply activate distant actors sooner, outside their visible right edge.
   const horizon = Math.max(2.4, (game.width + 80 - CAT_X - 70) / speed);
   while (game.courseIndex < COURSE.length && COURSE[game.courseIndex] - game.elapsed <= horizon) {
-    const encounterAt = COURSE[game.courseIndex++];
+    const encounter = ENCOUNTERS[game.courseIndex++];
+    const { encounterAt } = encounter;
     const x = CAT_X + 70 + speed * (encounterAt - game.elapsed);
-    game.obstacles.push({ x, w: 34, h: 28, hit: false, cleared: false, id: game.serial++, encounterAt });
+    game.obstacles.push({ ...encounter, x, hit: false, cleared: false, id: game.serial++, encounterAt });
     for (let i = 0; i < 3; i++) game.treats.push({
-      x: x - 40 + i * 40, y: GROUND - 90 - (i === 1 ? 45 : 0),
+      x: x - 40 + i * 40, y: GROUND - (encounter.taps === 2 ? 165 : 90) - (i === 1 ? 25 : 0),
+      kind: encounter.taps === 2 && i === 1 ? 'star' : 'fish',
+      value: encounter.taps === 2 && i === 1 ? 50 : 10,
       taken: false, id: game.serial++, encounterAt, offset: -40 + i * 40,
     });
   }
   while (game.snackIndex < SNACK_TIMES.length && SNACK_TIMES[game.snackIndex] - game.elapsed <= horizon) {
     const encounterAt = SNACK_TIMES[game.snackIndex++];
     game.treats.push({ x: CAT_X + 70 + speed * (encounterAt - game.elapsed),
-      y: GROUND - 35, taken: false, id: game.serial++, encounterAt, offset: 0 });
+      y: GROUND - 35, kind: 'fish', value: 10, taken: false, id: game.serial++, encounterAt, offset: 0 });
   }
   const cat = catBounds(game);
   for (const obstacle of game.obstacles) {
@@ -121,7 +142,7 @@ function tick(game, dt) {
         { x: obstacle.x + 9, y: GROUND - obstacle.h + 5, w: obstacle.w - 18, h: obstacle.h - 5 })) {
       // Mark even protected contacts, so they cannot become a later hit or clean clear.
       obstacle.hit = true;
-      game.streak = 0;
+      game.streak = 0; game.combo = 0;
       if (game.invincible <= 0) {
         game.hearts = Math.max(0, game.hearts - 1);
         game.hitCount += 1;
@@ -136,8 +157,11 @@ function tick(game, dt) {
       obstacle.cleared = true;
       if (!obstacle.hit) {
         game.cleared++; game.streak++;
+        game.combo = Math.min(5, game.streak);
+        const value = 20 + 5 * (game.combo - 1);
+        game.score += value;
         game.bestStreak = Math.max(game.bestStreak, game.streak);
-        emit(game, 'clear', { id: obstacle.id, x: obstacle.x + 22, y: GROUND - 50, streak: game.streak });
+        emit(game, 'clear', { id: obstacle.id, x: obstacle.x + 22, y: GROUND - 50, streak: game.streak, combo: game.combo, value, score: game.score, kind: obstacle.kind });
       }
     }
   }
@@ -146,7 +170,11 @@ function tick(game, dt) {
       ? CAT_X + 70 + speed * (treat.encounterAt - game.elapsed) + treat.offset : treat.x - speed * dt;
     if (!treat.taken && overlaps(cat, { x: treat.x - 17, y: treat.y - 15, w: 34, h: 30 })) {
       treat.taken = true; game.snacks++;
-      emit(game, 'snack', { id: treat.id, x: treat.x, y: treat.y });
+      const kind = treat.kind || 'fish';
+      const value = treat.value ?? 10;
+      if (kind === 'star') game.stars++;
+      game.score += value;
+      emit(game, 'snack', { id: treat.id, x: treat.x, y: treat.y, kind, value, score: game.score });
     }
   }
   game.obstacles = game.obstacles.filter(o => o.x > -80);

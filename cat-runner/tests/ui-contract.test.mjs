@@ -21,7 +21,7 @@ test('all static relative page assets exist',()=>{
 test('generated PNG is a full-size RGBA raster, not an SVG replacement',()=>{
  const data=readFileSync(file('assets/fuwa-generated.png'));
  assert.equal(data.subarray(1,4).toString(),'PNG');assert.equal(data.readUInt32BE(16),1536);assert.equal(data.readUInt32BE(20),1024);
- assert.equal(data[25],6);assert(game.includes("this.load.image('fuwa','./assets/fuwa-generated.png')"));assert(!game.includes('fuwa.svg'));
+ assert.equal(data[25],6);assert(/this\.load\.image\('fuwa',\s*'\.\/assets\/fuwa-generated\.png'\)/.test(game));assert(!game.includes('fuwa.svg'));
 });
 test('HTML duration agrees with the authored course',()=>{
  assert(html.includes(`aria-valuemax="${ROUND_SECONDS}"`));assert(html.includes(`${ROUND_SECONDS}초 산책`));
@@ -31,7 +31,7 @@ test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>
  assert(game.includes("$('jump'), $('game-canvas')"));
  assert(game.includes("target.addEventListener('pointercancel',pointerRelease)"));
  assert(game.includes("document.addEventListener('keyup'"));
- assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(game.includes('next!==oldWidth){pause()'));
+ assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(/next\s*!==\s*oldWidth\)\s*\{\s*pause\(\)/.test(game));
 });
 test('Phaser MIT license is retained',()=>{const license=readFileSync(file('vendor/PHASER-LICENSE.md'),'utf8');assert(license.includes('MIT'));assert(readFileSync(file('vendor/phaser-3.90.0.min.js')).length>1000000);});
 
@@ -39,4 +39,19 @@ test('tutorial describes two separate taps and denies any hold-height effect',()
  assert(html.includes('공중에서 한 번 더 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
  assert(html.includes('id="jump-label"'));assert(html.includes('id="jump-state"'));
  assert(!html.includes('꾹 누르면'));assert(!game.includes('hold threshold'));
+});
+
+test('real motion atlas and painted backdrop are local with registered runtime frames',()=>{
+ const motion=readFileSync(file('assets/fuwa-motion-v1.png'));
+ assert.equal(motion.readUInt32BE(16),1774);assert.equal(motion.readUInt32BE(20),887);assert.equal(motion[25],6);
+ const background=readFileSync(file('assets/moonlit-alley-v1.png'));
+ assert.equal(background.readUInt32BE(16),2172);assert.equal(background.readUInt32BE(20),724);
+ assert(game.includes('i < 8'));assert(game.includes('295 / 310'));assert(game.includes("? 6 : 7"));
+ assert(game.includes('distance * .012'));assert(game.includes('Math.min(200,'));
+});
+test('score, obstacle hints and audio lifecycle are connected',()=>{
+ for(const id of ['score','combo','result-score','result-rating'])assert(html.includes(`id="${id}"`));
+ assert(game.includes('jumpCueSeconds(game.mode,next)'));assert(game.includes("from './audio.mjs'"));
+ for(const action of ['start','pause','resume','stop'])assert(game.includes(`audio.${action}()`));
+ assert(game.includes("audio.play('finish')"));assert(game.includes("event.kind"));
 });
