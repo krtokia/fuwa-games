@@ -19,6 +19,7 @@ let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHeart
 let lastSegment = '', finished = false, visualClock = 0;
 let heldInput = null;
 let pausedStatus = null;
+let restoreJumpFocus = false;
 
 function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {} }
 function announce(text) { $('announcement').textContent = text; }
@@ -31,7 +32,7 @@ function start() {
   endJump();
   game = createGame(mode, scene.scale.width); game.status = 'running';
   noticeUntil = 0; toastUntil = 0; finished = false; lastSegment = '';
-  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0; pausedStatus = null;
+  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0; pausedStatus = null; restoreJumpFocus = false;
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
@@ -77,6 +78,7 @@ function pause() {
 function resume() {
   if (game.status !== 'paused') return;
   game.status = pausedStatus === 'finished' ? 'finished' : 'running'; pausedStatus = null;
+  restoreJumpFocus = game.reactionRemaining > 0;
   if (game.reactionRemaining <= 0) { scene.tweens.resumeAll(); audio.resume(); }
   overlay(null); $('pause').disabled = false; $('jump').disabled = game.reactionRemaining > 0;
   (game.reactionRemaining > 0 ? $('pause') : $('jump')).focus({ preventScroll:true });
@@ -85,12 +87,12 @@ function resume() {
 function showStart() {
   endJump(); audio.stop();
   scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
-  pausedStatus = null; scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
+  pausedStatus = null; restoreJumpFocus = false; scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
   overlay('start-card'); $('start').focus({preventScroll:true}); updateHUD();
 }
 function finish() {
-  if (finished) return; finished = true;
+  if (finished) return; finished = true; restoreJumpFocus = false;
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
@@ -140,6 +142,10 @@ function updateHUD() {
   }
   if(game.status!=='running') return;
   $('jump').disabled=game.elapsed<game.recoveryUntil;
+  if(restoreJumpFocus&&!$('jump').disabled) {
+    if(document.activeElement===$('pause')||document.activeElement===$('resume'))$('jump').focus({preventScroll:true});
+    restoreJumpFocus=false;
+  }
   if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
   const next=nextCue(game);
   const longFlight=game.obstacles.find(o=>o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
@@ -409,7 +415,10 @@ function bootPhaser() {
           }
           if(completed) {
             if(game.status==='finished') finish();
-            else { this.tweens.resumeAll();audio.resume({fromGesture:false});announce('후와가 다시 달려요.'); }
+            else {
+              this.tweens.resumeAll();audio.resume({fromGesture:false});
+              announce('후와가 다시 달려요.');
+            }
           }
         }
         updateHUD();

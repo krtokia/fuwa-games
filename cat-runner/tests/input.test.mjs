@@ -13,7 +13,7 @@ function setup(saved = null) {
   emit(type,event={}){for(const fn of this.handlers[type]??[])fn({currentTarget:this,target:this,preventDefault(){},...event});}
   setAttribute(k,v){this.attributes[k]=v;}
   replaceChildren(...items){this.textContent=items.map(x=>x.textContent).join('');}
-  focus(){} setPointerCapture(){}
+  focus(){if(!this.disabled)document.activeElement=this;} setPointerCapture(){}
   matches(tag){return tag==='button'&&['jump','start','pause','resume','again','restart','sound'].includes(this.id)||tag==='input'&&this.id.startsWith('mode-');}
  }
  const el=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
@@ -179,7 +179,7 @@ test('manual pause and blur preserve reaction phase and terminal intent',()=>{
   assert.equal(ui.run('scene.tweens.paused'),true);assert.equal(ui.el('jump').disabled,true);
   while(ui.game.reactionRemaining>0)ui.frame();
   if(hearts===1){assert.equal(ui.game.status,'finished');assert.equal(ui.run('finished'),true);assert.equal(ui.el('result-title').textContent,'다시 달려볼까요?');for(let i=0;i<30;i++)ui.frame();assert.equal(ui.game.elapsed,elapsed);}
-  else{assert.equal(ui.run('finished'),false);ui.frame();assert(ui.game.elapsed>elapsed);}
+  else{assert.equal(ui.run('finished'),false);assert.equal(ui.document.activeElement,ui.el('jump'));ui.frame();assert(ui.game.elapsed>elapsed);}
  }
 });
 
@@ -189,4 +189,15 @@ test('restart during a reaction removes its pose and cannot fire an old resume',
  ui.el('start').emit('click');for(let i=0;i<150;i++)ui.frame();
  assert.equal(ui.game.hearts,3);assert.equal(ui.game.hitCount,0);assert.equal(ui.game.reactionRemaining,0);
  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),0);
+});
+
+test('paused pit reaction restores keyboard focus only after safe-ground recovery',()=>{
+ const ui=renderedUI();ui.run('game.elapsed=9.99;game.courseIndex=2;game.snackIndex=99;');
+ while(ui.game.reactionRemaining<=0)ui.frame();
+ assert(ui.game.recoveryUntil>ui.game.elapsed);ui.el('pause').emit('click');ui.el('resume').emit('click');
+ while(ui.game.reactionRemaining>0)ui.frame();
+ assert.equal(ui.el('jump').disabled,true);assert.equal(ui.document.activeElement,ui.el('pause'));
+ while(ui.el('jump').disabled)ui.frame();
+ assert.equal(ui.document.activeElement,ui.el('jump'));assert.equal(ui.run('restoreJumpFocus'),false);
+ ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});assert.equal(ui.game.jumpCount,1);
 });
