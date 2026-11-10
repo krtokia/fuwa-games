@@ -25,7 +25,7 @@ function setup(saved = null) {
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};
- return{el,document,window,tick,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},get held(){return vm.runInContext('heldInput',sandbox);}};
+ return{el,document,window,tick,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},run:code=>vm.runInContext(code,sandbox),get held(){return vm.runInContext('heldInput',sandbox);}};
 }
 const pointer={pointerId:7,isPrimary:true,button:0};
 test('button and canvas tap or long hold always produce the same low jump',()=>{
@@ -103,4 +103,24 @@ test('long-jump cue explicitly waits before requesting the second tap',()=>{
  ui.tick(.42);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
  assert.notEqual(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+});
+
+
+test('high-stack cue starts early and waits for a separate second tap',()=>{
+ const ui=setup();ui.run("game.elapsed=32.08;game.courseIndex=9;game.hearts=3;game.invincible=0;game.y=0;game.vy=0;game.grounded=true;game.jumpCount=0;game.obstacles=[];game.treats=[];");
+ ui.tick(.01);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 톡! 잠깐 뒤 다시 톡');
+ ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
+ ui.tick(.32);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+ ui.tick(.1);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);ui.tick(1.2);ui.refresh();
+ assert.equal(ui.game.hitCount,0);assert.equal(ui.game.grounded,true);
+});
+
+test('last collision stops music preserving hiss, and result uses separate course record',()=>{
+ const ui=setup();ui.run("game.status='finished';game.hearts=0;finish();");
+ assert.equal(ui.el('jump').disabled,true);assert.equal(ui.el('pause').disabled,true);
+ assert.equal(ui.game.status,'finished');assert.equal(ui.el('result-title').textContent,'다시 달려볼까요?');
+ assert(ui.run("Object.hasOwn(saved,'score_v7_normal')"));
+ ui.el('again').emit('click');assert.equal(ui.game.hitCount,0);assert.equal(ui.game.hearts,3);
+ assert.equal(ui.run('terminalFeedbackUntil'),0);
 });

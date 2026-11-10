@@ -26,13 +26,16 @@ export const TERRAIN = Object.freeze([
 const SHAPES = {
   crate: { duration: .16, h: 30, taps: 1, hint: '상자는 한 번 톡!', cueLead: .5 },
   long: { duration: .95, h: 32, taps: 2, hint: '긴 화분! 톡, 잠깐 뒤 톡!', cueLead: .5 },
+  // Its 115px body-clearance threshold exceeds the 90.25px single-jump apex.
+  // Warn earlier so a second tap .4–.6s after the first can lift over the stack.
+  high: { duration: .25, h: 125, taps: 2, hint: '높은 상자! 미리 톡, 한 번 더 톡!', cueLead: 1 },
   gap: { duration: .95, h: 0, taps: 2, hint: '빈 바닥! 두 번 톡!', cueLead: .5 },
   step: { duration: .18, h: 54, taps: 1, hint: '높아지는 길! 한 번 톡!', cueLead: .5 },
   drop: { duration: .18, h: 0, taps: 0, hint: '낮아지는 길, 사뿐!', cueLead: .5 },
 };
 export const ENCOUNTERS = Object.freeze([
   [4,'crate'], [7,'long'], [10,'gap'], [14,'drop'], [18,'step'],
-  [20,'long'], [23,'gap'], [27,'step'], [31,'drop'], [33,'crate'],
+  [20,'long'], [23,'gap'], [27,'step'], [31,'drop'], [33,'high'],
   [37,'gap'], [40,'long'],
 ].map(([encounterAt,kind],index)=>Object.freeze({encounterAt,kind,...SHAPES[kind],
   w: SHAPES[kind].duration * MODES.normal.speed, tutorial: index < 5})));
@@ -183,13 +186,14 @@ function tick(game, dt) {
     const floorHeight = floorAt(encounterAt + .001) ?? floorAt(encounterAt - .001) ?? 0;
     const x = CAT_X + 70 + speed * (encounterAt - game.elapsed);
     game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++, encounterAt });
-    // Rewards follow the traversed arc, not the leading edge. The star's
-    // lowest pickup edge is 155px above the floor: beyond a single low arc.
+    // Rewards follow the traversed arc, not the leading edge. Double-jump
+    // stars stay beyond a single low arc; high-stack rewards also sit above it.
     for (let i = 0; i < 3; i++) {
       const offset = encounter.taps === 2
         ? encounter.duration * speed * [.15, .5, .75][i]
         : encounter.taps === 0 ? speed * [.5, .7, .9][i] : -40 + i * 40;
-      const height = encounter.taps === 2 ? [105,170,125][i]
+      const height = encounter.kind === 'high' ? [180,205,180][i]
+        : encounter.taps === 2 ? [105,170,125][i]
         : encounter.taps === 0 ? 35 : 90 + (i === 1 ? 25 : 0);
       const rewardFloor = encounter.taps === 0
         ? floorAt(encounterAt + offset / speed) ?? floorHeight : floorHeight;
@@ -211,7 +215,7 @@ function tick(game, dt) {
     // Sprite-wide pickup bounds remain welcoming; the body/box collision
     // cores forgive paws and cardboard corners at either jump height.
     const body = { x: CAT_X + 50, y: cat.y, w: 30, h: cat.h };
-    if (!obstacle.hit && ['crate','long',undefined].includes(obstacle.kind) && overlaps(body,
+    if (!obstacle.hit && ['crate','long','high',undefined].includes(obstacle.kind) && overlaps(body,
         { x: obstacle.x + 9, y: (obstacle.baseY ?? GROUND) - obstacle.h + 5, w: obstacle.w - 18, h: obstacle.h - 5 })) {
       // Mark even protected contacts, so they cannot become a later hit or clean clear.
       obstacle.hit = true;

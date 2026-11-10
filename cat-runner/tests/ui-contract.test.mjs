@@ -69,3 +69,20 @@ test('actual terrain replaces the old uninterrupted road and uses floor-aware re
  assert(game.includes("if(event.type==='recover')"));assert(game.includes('game.jumpStartedAt'));
  assert(game.includes("worldViewport(host.clientWidth,host.clientHeight)"));
 });
+
+
+test('high obstacle is a visible solid stack with two-chevron cue',()=>{
+ assert(game.includes("box.kind==='high'"));assert(game.includes('rowH=(box.h-gap*(rows-1))/rows'));
+ assert(game.includes('jumpCueSeconds(game.mode,o)-.15'));
+});
+
+test('hiss uses a transparent generated pose with reset and reduced-motion fallback',()=>{
+ const pose=readFileSync(file('assets/fuwa-hiss-v1.png'));
+ assert.equal(pose.readUInt32BE(16),1774);assert.equal(pose.readUInt32BE(20),887);assert.equal(pose[25],6);
+ assert(game.includes("this.load.image('hiss', './assets/fuwa-hiss-v1.png')"));
+ assert(game.includes("this.hissAt = -1; this.finishGate"));assert(game.includes("setTexture('hiss','trimmed')"));
+ assert(game.includes('hissing&&!reducedMotion.matches'));assert(game.includes("'하악!'"));
+ assert(game.includes('terminalFeedbackUntil=visualClock+.62'));
+ assert(game.includes('audio.stop({preserveHit:true})'));
+ assert(readFileSync(file('scripts/build-standalone.py'),'utf8').includes('fuwa-hiss-v1.png'));
+});
