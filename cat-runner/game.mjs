@@ -1,4 +1,4 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue } from './engine.mjs';
+import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt } from './engine.mjs';
 import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 
@@ -138,8 +138,9 @@ function updateHUD() {
   let text='';
   if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
   else if(game.elapsed<noticeUntil)text='다시 달려요!';
+  else if(longFlight&&game.jumpCount===1&&jumpAge<.4)text='조금 더 날아가요…';
   else if(longFlight&&game.jumpCount===1&&jumpAge>=.4&&jumpAge<=.85)text='지금 한 번 더 톡! ↑↑';
-  else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 공중에서 한 번 더':'지금 톡! ↑';
+  else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
@@ -357,7 +358,7 @@ function bootPhaser() {
     syncObjects() {
       this.drawTerrain();
       const boxes = new Set(game.obstacles.map(o => o.id)); for (const [id, sprite] of this.boxes) if (!boxes.has(id)) { sprite.destroy(); this.boxes.delete(id); }
-      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } sprite.setPosition(box.x,box.baseY??GROUND).setAlpha(box.hit ? .5 : 1); }
+      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } const markerY=box.kind==='drop'?GROUND-(floorAt(box.encounterAt-.001)??0):(box.baseY??GROUND);sprite.setPosition(box.x,markerY).setAlpha(box.hit ? .5 : 1); }
       const treats = new Set(game.treats.map(t => t.id)); for (const [id, sprite] of this.treats) if (!treats.has(id)) { sprite.destroy(); this.treats.delete(id); }
       for (const treat of game.treats) { let sprite = this.treats.get(treat.id); if (!sprite) { sprite = this.add.image(treat.x, treat.y, treat.kind || 'fish').setDepth(6); this.treats.set(treat.id, sprite); } const pulse = reducedMotion.matches ? 1 : 1 + Math.sin(visualClock * 5 + treat.id) * .05; sprite.setPosition(treat.x, treat.y).setScale(pulse); if (treat.kind === 'star') sprite.setAngle(reducedMotion.matches ? 0 : Math.sin(visualClock * 3) * 9); }
     }

@@ -25,7 +25,7 @@ function setup(saved = null) {
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};
- return{el,document,window,tick,get game(){return vm.runInContext('game',sandbox);},get held(){return vm.runInContext('heldInput',sandbox);}};
+ return{el,document,window,tick,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},get held(){return vm.runInContext('heldInput',sandbox);}};
 }
 const pointer={pointerId:7,isPrimary:true,button:0};
 test('button and canvas tap or long hold always produce the same low jump',()=>{
@@ -95,4 +95,12 @@ test('restart clears airborne count, input and second-jump label',()=>{
 test('new pace is default even for legacy slow preference; new explicit choice is retained',()=>{
  assert.equal(setup().game.mode,'normal');assert.equal(setup({mode:'gentle'}).game.mode,'normal');
  assert.equal(setup({mode:'gentle',paceVersion:4}).game.mode,'gentle');
+});
+
+test('long-jump cue explicitly waits before requesting the second tap',()=>{
+ const ui=setup();ui.tick(6.65);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
+ ui.tick(.42);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+ ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
+ assert.notEqual(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
 });
