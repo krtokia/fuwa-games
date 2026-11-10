@@ -34,3 +34,7 @@ test('floating-point accumulated edge crossing cannot pass through a solid step'
 
 test('low-only jumps cannot collect double-jump stars',()=>{for(const mode of Object.keys(MODES)){const {g}=route(mode,720,60,.15,null);assert.equal(g.stars,0);}});
 test('drop rewards and rest snacks follow the actual lower floor',()=>{const g=at(13);g.courseIndex=3;g.snackIndex=3;step(g,1/120);const drops=g.treats.filter(t=>t.encounterAt===14);assert.equal(drops.length,3);for(const t of drops){assert(t.offset/MODES.normal.speed>=.5);assert.equal(t.y,GROUND+54-35);}for(const time of [14.6,15.2])assert.equal(g.treats.find(t=>t.encounterAt===time)?.y,GROUND+54-35);});
+
+test('descending above a raised lip at crossing lands even when tick ends below its top',()=>{const g=at(26.999,48.3);g.grounded=false;g.vy=-259.08;g.jumpCount=2;step(g,1/120);assert.equal(g.hearts,3);assert.equal(g.y,48);assert.equal(g.grounded,true);assert.equal(g.jumpCount,0);assert(g.events.some(e=>e.type==='land'));assert(!g.events.some(e=>e.type==='recover'));});
+test('descending below a raised lip at crossing collides with its face',()=>{const g=at(26.999,48.05);g.grounded=false;g.vy=-259.08;g.jumpCount=2;step(g,1/120);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));});
+test('ascending through a raised face is blocked even when tick ends above its top',()=>{const g=at(26.999,47.5);g.grounded=false;g.vy=260.8;g.jumpCount=1;step(g,1/120);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));});

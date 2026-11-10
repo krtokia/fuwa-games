@@ -124,12 +124,17 @@ function advanceTerrain(game,dt) {
   // Walking off an edge spends the ground jump; only the air tap remains.
   if (game.grounded) game.jumpCount=Math.max(1,game.jumpCount);
   game.grounded=false;
-  const oldY=game.y;
+  const oldY=game.y, oldVy=game.vy;
   game.y+=game.vy*dt-GRAVITY*dt*dt/2;
   game.vy-=GRAVITY*dt;
   // Swept rising face contact: crossing below its top is a hit, never a snap-up.
-  const edge=TERRAIN.find(s=>s.start>previous && s.start<=now &&
-    s.height>(floorAt(s.start-1e-5) ?? -Infinity) && game.y<s.height-.001);
+  const edge=TERRAIN.find(s=>{
+    if (!(s.start>previous && s.start<=now &&
+      s.height>(floorAt(s.start-1e-5) ?? -Infinity))) return false;
+    const crossingTime=s.start-previous;
+    const crossingY=oldY+oldVy*crossingTime-GRAVITY*crossingTime*crossingTime/2;
+    return crossingY<s.height-1e-7;
+  });
   if(edge) { recover(game,'wall',edge); return; }
   if (floor!==null && game.vy<=0 && oldY>=floor-1e-7 && game.y<=floor) {
     game.y=floor;game.vy=0;game.grounded=true;game.jumpCount=0;emit(game,'land');
