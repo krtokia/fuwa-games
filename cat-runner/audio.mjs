@@ -39,8 +39,8 @@ export class RunnerAudio {
     } catch { return false; }
   }
   start() { this.silence(); this.step = 0; this.running = true; if (this.enabled && this.unlock()) this.schedule(); }
-  resume() { this.running = true; if (this.enabled && this.unlock()) this.schedule(); }
-  pause() { this.running = false; this.silence(); }
+  resume({ fromGesture = true } = {}) { this.running = true; if (this.enabled && (fromGesture ? this.unlock() : this.context?.state === 'running')) this.schedule(); }
+  pause({ preserveHit = false } = {}) { this.running = false; this.silence({ preserveHit }); }
   // A fatal collision may finish its brief hiss, but never the music/other effects.
   // Pause, mute, restart and dispose always silence everything immediately.
   stop({ preserveHit = false } = {}) { this.running = false; this.silence({ preserveHit }); this.step = 0; }

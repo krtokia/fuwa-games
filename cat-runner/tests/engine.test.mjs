@@ -1,13 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,jump,pressJump,releaseJump,step,MODES,ROUND_SECONDS,GROUND,CAT_X,GRAVITY,JUMP_SPEED,SECOND_JUMP_SPEED,ENCOUNTERS,COURSE,TERRAIN,terrainSegments,floorAt,nextCue,jumpCueSeconds} from '../engine.mjs';
+import {createGame,jump,pressJump,releaseJump,step,advanceReaction,HIT_REACTION_SECONDS,FIXED_STEP,MODES,ROUND_SECONDS,GROUND,CAT_X,GRAVITY,JUMP_SPEED,SECOND_JUMP_SPEED,ENCOUNTERS,COURSE,TERRAIN,terrainSegments,floorAt,nextCue,jumpCueSeconds} from '../engine.mjs';
 function playing(mode='normal',width=640){const g=createGame(mode,width);g.status='running';return g;}
-function run(g,seconds,hz=120){for(let i=0;i<Math.round(seconds*hz);i++)step(g,1/hz);}
+function finishReaction(g,hz=120){while(g.reactionRemaining>0&&['running','finished'].includes(g.status))advanceReaction(g,1/hz);}
+// Existing route assertions measure gameplay seconds, excluding the explicit
+// presentation-only reaction. Reactions never masquerade as new event frames.
+function run(g,seconds,hz=120){for(let i=0;i<Math.round(seconds*hz);i++){finishReaction(g,hz);step(g,1/hz);}}
 function route(mode='normal',width=640,hz=120,response=.15,second=.5,miss=null){
  const g=playing(mode,width),events=[];const taps=ENCOUNTERS.flatMap(o=>{const first=o.encounterAt-jumpCueSeconds(mode,o)+response;return o.taps&&o.encounterAt!==miss?[first,...o.taps===2&&second!==null?[first+second]:[]]:[];});let i=0;
- while(g.status==='running'){if(g.elapsed>=taps[i]-1e-9){assert(jump(g),`tap ${taps[i]} at ${g.elapsed}`);i++;}step(g,1/hz);events.push(...g.events);}return {g,events};
+ while(g.status==='running'){if(g.reactionRemaining>0){advanceReaction(g,1/hz);continue;}if(g.elapsed>=taps[i]-1e-9){assert(jump(g),`tap ${taps[i]} at ${g.elapsed}`);i++;}step(g,1/hz);events.push(...g.events);}return {g,events};
 }
-function at(time,y=floorAt(time)??0){const g=playing();g.elapsed=time;g.distance=time*MODES[g.mode].speed;g.courseIndex=COURSE.length;g.snackIndex=99;g.y=y;g.floorHeight=floorAt(time);return g;}
+function at(time,y=floorAt(time)??0,mode='normal'){const g=playing(mode);g.elapsed=time;g.distance=time*MODES[g.mode].speed;g.courseIndex=COURSE.length;g.snackIndex=99;g.y=y;g.floorHeight=floorAt(time);return g;}
 // Spawn through the real engine, then isolate the high encounter and its rewards.
 function highGame(mode,phase=0){
  const g=playing(mode,720),high=ENCOUNTERS.find(o=>o.kind==='high');
@@ -18,10 +21,10 @@ function highGame(mode,phase=0){
 }
 function finishHigh(g,hz,onFrame){
  const events=[],end=ENCOUNTERS.find(o=>o.kind==='high').encounterAt+1.6;
- while(g.elapsed<end){onFrame(g);step(g,1/hz);events.push(...g.events);}
+ while(g.elapsed<end){if(g.reactionRemaining>0){advanceReaction(g,1/hz);continue;}onFrame(g);step(g,1/hz);events.push(...g.events);}
  return events;
 }
-test('invalid mode is normalized, restart is clean',()=>{for(const mode of ['bad','constructor','__proto__'])assert.equal(createGame(mode).mode,'normal');const g=createGame();assert.equal(g.hearts,3);assert.equal(g.elapsed,0);assert.equal(g.grounded,true);assert.equal(g.pendingBoost,null);});
+test('invalid mode is normalized, restart is clean',()=>{for(const mode of ['bad','constructor','__proto__'])assert.equal(createGame(mode).mode,'normal');const g=createGame();assert.equal(g.hearts,3);assert.equal(g.elapsed,0);assert.equal(g.grounded,true);assert.equal(g.pendingBoost,null);assert.equal(g.reactionElapsed,0);assert.equal(g.reactionRemaining,0);});
 test('ready, paused and terminal input/time are immutable',()=>{for(const status of ['ready','paused','won','finished']){const g=createGame();g.status=status;const before=JSON.stringify(g);assert.equal(jump(g),false);assert.equal(pressJump(g),false);step(g,1);assert.equal(JSON.stringify(g),before);}});
 test('single arc is 90.25 high and .95 seconds, independent of hold',()=>{assert.equal(JUMP_SPEED*2/GRAVITY,.95);for(const hz of [30,60,120])for(const hold of [0,.1,.5,2]){const g=playing();pressJump(g);let apex=0;for(let i=0;i<2*hz;i++){if(g.elapsed>=hold)releaseJump(g);step(g,1/hz);apex=Math.max(apex,g.y);}assert(apex>89&&apex<=90.251);assert.equal(g.y,0);assert.equal(g.jumpCount,0);}});
 test('second press resets velocity, third is rejected and never buffered',()=>{for(const delay of [0,.1,.45,.7,.9]){const g=playing();pressJump(g);run(g,delay);assert.equal(pressJump(g),false);releaseJump(g);assert(pressJump(g));assert.equal(g.vy,SECOND_JUMP_SPEED);releaseJump(g);assert.equal(pressJump(g),false);run(g,2);assert.equal(g.jumpCount,0);assert.equal(pressJump(g),false);assert.equal(jump(g),false);releaseJump(g);assert(jump(g));}});
@@ -32,7 +35,7 @@ test('walking over a drop falls continuously then lands on lower floor',()=>{con
 test('a descending crossing lands on raised ground, not on air',()=>{const g=at(27.1,49);g.grounded=false;g.vy=-120;g.jumpCount=2;step(g,1/60);assert.equal(g.y,48);assert.equal(g.grounded,true);assert.equal(g.jumpCount,0);const hole=at(10.5,1);hole.grounded=false;hole.vy=-120;hole.jumpCount=2;step(hole,1/60);assert(hole.y<0);assert.equal(hole.jumpCount,2);assert.equal(hole.grounded,false);});
 test('landing just before/after the far lip respects the actual surface',()=>{const early=at(10.92,1);early.grounded=false;early.vy=-100;step(early,1/60);assert(early.y<0);assert.equal(early.grounded,false);const late=at(10.96,1);late.grounded=false;late.vy=-100;step(late,1/60);assert.equal(late.y,0);assert.equal(late.grounded,true);});
 test('rising solid wall costs a heart and emits explicit recovery, not a silent floor snap',()=>{const g=at(17.99,-54);step(g,1/60);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));assert(g.recoveryUntil>g.elapsed);run(g,1);assert.equal(g.hearts,2);assert.equal(g.y,0);});
-test('missing a hole costs one heart and safely resumes at its approaching lip',()=>{const g=at(9.99);const events=[];for(let i=0;i<240;i++){step(g,1/120);events.push(...g.events);}assert.equal(g.hearts,2);assert.equal(g.hitCount,1);assert.equal(g.y,0);assert.equal(g.grounded,true);assert.equal(events.filter(e=>e.type==='recover').length,1);assert(events.some(e=>e.reason==='fall'));assert(g.elapsed>11.9);});
+test('missing a hole costs one heart and safely resumes at its approaching lip',()=>{const g=at(9.99);const events=[];for(let i=0;i<240;i++){finishReaction(g);step(g,1/120);events.push(...g.events);}assert.equal(g.hearts,2);assert.equal(g.hitCount,1);assert.equal(g.y,0);assert.equal(g.grounded,true);assert.equal(events.filter(e=>e.type==='recover').length,1);assert(events.some(e=>e.reason==='fall'));assert(g.elapsed>11.9);});
 test('rescue cannot be exploited to reset midair jumps',()=>{const g=at(9.99);while(!g.recoveryUntil)step(g,1/120);assert.equal(jump(g),false);run(g,.5);assert.equal(g.jumpCount,0);assert(jump(g));assert(jump(g));assert.equal(jump(g),false);});
 test('no input fails, not endless falling; zero hearts terminal is immutable',()=>{const {g,events}=route('normal',640,60,.15,null);assert(g.hitCount>0);assert(!events.some(e=>e.type==='clear'&&e.kind==='long'));const idle=playing();run(idle,44);assert.equal(idle.status,'finished');const before=JSON.stringify(idle);step(idle,1);assert.equal(JSON.stringify(idle),before);});
 test('authored long obstacle mathematically exceeds all possible single-jump clearance',()=>{for(const mode of Object.keys(MODES)){const speed=MODES[mode].speed;for(const o of ENCOUNTERS.filter(o=>o.kind==='long')){const required=(o.duration*speed-18+30)/speed;const height=o.h-10;const usable=2*Math.sqrt(JUMP_SPEED**2-2*GRAVITY*height)/GRAVITY;assert(required>usable);}}});
@@ -103,3 +106,129 @@ test('drop rewards and rest snacks follow the actual lower floor',()=>{const g=a
 test('descending above a raised lip at crossing lands even when tick ends below its top',()=>{const g=at(26.999,48.3);g.grounded=false;g.vy=-259.08;g.jumpCount=2;step(g,1/120);assert.equal(g.hearts,3);assert.equal(g.y,48);assert.equal(g.grounded,true);assert.equal(g.jumpCount,0);assert(g.events.some(e=>e.type==='land'));assert(!g.events.some(e=>e.type==='recover'));});
 test('descending below a raised lip at crossing collides with its face',()=>{const g=at(26.999,48.05);g.grounded=false;g.vy=-259.08;g.jumpCount=2;step(g,1/120);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));});
 test('ascending through a raised face is blocked even when tick ends above its top',()=>{const g=at(26.999,47.5);g.grounded=false;g.vy=260.8;g.jumpCount=1;step(g,1/120);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));});
+
+function hitFixture(mode,kind='collision',hearts=3){
+ const g=kind==='wall'?at(17.999,-54,mode):kind==='fall'?at(10.4,-159,mode):at(2,0,mode);
+ g.hearts=hearts;
+ if(kind==='fall'){g.grounded=false;g.vy=-180;g.jumpCount=1;}
+ g.obstacles=kind==='collision'?[{id:900,x:CAT_X+50,w:44,h:42,hit:false,cleared:false}]:[];
+ g.obstacles.push({id:901,x:500,w:44,h:42,hit:false,cleared:false});
+ g.treats=[{id:902,x:500,y:GROUND-35,taken:false}];
+ return g;
+}
+function worldSnapshot(game){const {reactionElapsed,reactionRemaining,...world}=game;return structuredClone(world);}
+
+test('reaction clock is explicit, frame-bounded, inert without a hit, and rejects invalid time',()=>{
+ for(const mode of Object.keys(MODES)){
+  const g=playing(mode),before=structuredClone(g);
+  assert.equal(advanceReaction(g,1),false);assert.deepEqual(g,before);
+  const hit=hitFixture(mode);step(hit,FIXED_STEP);const frozen=structuredClone(hit);
+  for(const dt of [NaN,Infinity,-Infinity,-1,0]){assert.equal(advanceReaction(hit,dt),false);assert.deepEqual(hit,frozen);}
+  assert.equal(advanceReaction(hit,10),false);assert.equal(hit.reactionElapsed,1/30);
+  assert.equal(hit.reactionRemaining,HIT_REACTION_SECONDS-1/30);
+  assert.deepEqual(worldSnapshot(hit),worldSnapshot(frozen));
+ }
+});
+
+test('every damaging collision, wall and fall freezes the entire world at both speeds',()=>{
+ for(const mode of Object.keys(MODES))for(const kind of ['collision','wall','fall'])for(const hz of [30,60,120]){
+  const g=hitFixture(mode,kind),before=g.elapsed;
+  step(g,1/30);
+  assert.equal(g.elapsed,before+FIXED_STEP,`${mode}/${kind}/${hz}: only the damaging tick advances`);
+  assert.equal(g.accumulator,0);assert.equal(g.hearts,2);assert.equal(g.hitCount,1);
+  assert.equal(g.reactionElapsed,0);assert.equal(g.reactionRemaining,HIT_REACTION_SECONDS);
+  const frozen=worldSnapshot(g),eventList=g.events;
+  let completions=0,frames=0;
+  while(g.reactionRemaining>0){
+   const unchanged=structuredClone(g);
+   step(g,1/hz);assert.deepEqual(g,unchanged);
+   assert.equal(jump(g),false);assert.equal(pressJump(g),false);assert.deepEqual(g,unchanged);
+   completions+=Number(advanceReaction(g,1/hz));frames++;
+   assert.deepEqual(worldSnapshot(g),frozen);
+   assert.equal(g.events,eventList,'frozen step does not replace or re-emit the hit frame');
+   assert.equal(g.events.filter(e=>e.type==='hit').length,1);
+   assert(frames<=Math.ceil(HIT_REACTION_SECONDS*hz));
+  }
+  assert.equal(frames,Math.ceil(HIT_REACTION_SECONDS*hz));assert.equal(completions,1);
+  assert.equal(g.reactionElapsed,HIT_REACTION_SECONDS);
+  assert.equal(advanceReaction(g,1/hz),false);assert.deepEqual(worldSnapshot(g),frozen);
+  step(g,FIXED_STEP);
+  assert.equal(g.elapsed,frozen.elapsed+FIXED_STEP);assert.equal(g.hearts,2);
+  assert.equal(g.invincible,frozen.invincible-FIXED_STEP);
+  assert(!g.events.some(e=>e.type==='hit'));
+  assert(g.obstacles.find(o=>o.id===901).x<frozen.obstacles.find(o=>o.id===901).x);
+ }
+});
+
+test('protected contacts do not damage, restart a completed reaction, or count as clears',()=>{
+ for(const mode of Object.keys(MODES)){
+  const g=hitFixture(mode);step(g,FIXED_STEP);finishReaction(g);
+  g.obstacles.push({id:903,x:CAT_X+50,w:44,h:42,hit:false,cleared:false});
+  step(g,FIXED_STEP);
+  assert.equal(g.hearts,2);assert.equal(g.hitCount,1);
+  assert.equal(g.reactionRemaining,0);assert.equal(g.reactionElapsed,HIT_REACTION_SECONDS);
+  assert.equal(g.obstacles.find(o=>o.id===903).hit,true);
+  assert(!g.events.some(e=>e.type==='hit'));
+  run(g,.4);assert.equal(g.cleared,0);
+  // A genuinely later unprotected contact starts a fresh reaction exactly once.
+  run(g,2);g.obstacles.push({id:904,x:CAT_X+50,w:44,h:42,hit:false,cleared:false});
+  step(g,FIXED_STEP);assert.equal(g.hearts,1);assert.equal(g.hitCount,2);
+  assert.equal(g.reactionElapsed,0);assert.equal(g.reactionRemaining,HIT_REACTION_SECONDS);
+ }
+});
+
+test('manual pause freezes both nonfatal and final-heart reaction clocks',()=>{
+ for(const mode of Object.keys(MODES))for(const hearts of [1,3]){
+  const g=hitFixture(mode,'collision',hearts);step(g,FIXED_STEP);
+  advanceReaction(g,1/30);const status=g.status;g.status='paused';
+  const frozen=structuredClone(g);
+  for(let i=0;i<120;i++){step(g,1/30);assert.equal(advanceReaction(g,1/30),false);assert.equal(jump(g),false);assert.equal(pressJump(g),false);}
+  assert.deepEqual(g,frozen);
+  g.status=status;finishReaction(g);
+  assert.equal(g.status,hearts===1?'finished':'running');assert.equal(g.reactionRemaining,0);
+  assert.equal(g.elapsed,frozen.elapsed);assert.equal(g.hearts,hearts-1);
+ }
+});
+
+test('reaction rejects held, repeated and third taps without buffering input',()=>{
+ for(const mode of Object.keys(MODES)){
+  const g=hitFixture(mode);g.y=5;g.vy=-40;g.grounded=false;g.jumpCount=2;g.jumpHeld=true;
+  step(g,FIXED_STEP);const y=g.y,vy=g.vy;
+  for(let i=0;i<10;i++){assert.equal(pressJump(g),false);assert.equal(jump(g),false);advanceReaction(g,1/30);}
+  assert.equal(g.y,y);assert.equal(g.vy,vy);assert.equal(g.jumpCount,2);assert.equal(g.jumpHeld,true);
+  releaseJump(g);
+  assert.equal(pressJump(g),false);assert.equal(g.jumpHeld,false,'rejected reaction press does not queue a held latch');
+  finishReaction(g);assert.equal(g.jumpCount,2);assert.equal(jump(g),false,'reaction grants no extra air jump');
+  run(g,.4);assert.equal(g.y,0);assert.equal(g.jumpCount,0);assert.equal(g.vy,0);
+  assert.equal(g.pendingBoost,null);assert(jump(g),'only a new accepted input jumps after landing');
+ }
+});
+
+test('last-heart collision, wall and fall finish their visible reaction without reviving gameplay',()=>{
+ for(const mode of Object.keys(MODES))for(const kind of ['collision','wall','fall']){
+  const g=hitFixture(mode,kind,1);step(g,1/30);
+  assert.equal(g.status,'finished');assert.equal(g.hearts,0);assert.equal(g.hitCount,1);
+  assert.equal(g.event,'finished');assert.equal(g.reactionRemaining,HIT_REACTION_SECONDS);
+  assert.equal(g.events.filter(e=>e.type==='finished').length,1);
+  if(kind!=='collision'){
+   assert.equal(g.y,0);assert.equal(g.vy,0);assert.equal(g.grounded,true);
+   assert.equal(g.floorHeight,0);assert(g.recoveryUntil>g.elapsed);
+   assert(g.events.some(e=>e.type==='recover'&&e.reason===kind));
+  }
+  const world=worldSnapshot(g);finishReaction(g,30);assert.deepEqual(worldSnapshot(g),world);
+  const complete=structuredClone(g);
+  for(let i=0;i<120;i++){step(g,1/30);assert.equal(advanceReaction(g,1/30),false);assert.equal(jump(g),false);assert.equal(pressJump(g),false);}
+  assert.deepEqual(g,complete);
+  const restarted=createGame(mode);assert.equal(restarted.reactionElapsed,0);assert.equal(restarted.reactionRemaining,0);
+  assert.equal(restarted.hearts,3);assert.equal(restarted.jumpHeld,false);assert.equal(restarted.accumulator,0);
+ }
+});
+
+test('a hypothetical finish-line collision completes reaction before a clean finish',()=>{
+ for(const mode of Object.keys(MODES)){
+  const g=hitFixture(mode);g.elapsed=ROUND_SECONDS-FIXED_STEP;
+  step(g,FIXED_STEP);assert.equal(g.status,'running');assert.equal(g.reactionRemaining,HIT_REACTION_SECONDS);
+  finishReaction(g);assert.equal(g.status,'running');step(g,FIXED_STEP);
+  assert.equal(g.status,'won');assert.equal(g.hearts,2);assert.equal(g.elapsed,ROUND_SECONDS);
+ }
+});

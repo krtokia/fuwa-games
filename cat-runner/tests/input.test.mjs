@@ -19,7 +19,7 @@ function setup(saved = null) {
  const el=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
  const document=Object.assign(new Element('document'),{hidden:false,getElementById:el,querySelector:()=>el('progress'),querySelectorAll:()=>['gentle','normal'].map(value=>Object.assign(el('mode-'+value),{value})),createTextNode:textContent=>({textContent}),createElement:()=>new Element()});
  const window=new Element('window');
- class RunnerAudio {setEnabled(value){return value;}start(){}pause(){}resume(){}stop(){}play(){}}
+ class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type){this.calls.push(['play',type]);}}
  const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(){}},matchMedia:()=>({matches:false}),console};
  vm.createContext(sandbox);vm.runInContext(engine+'\n'+controller,sandbox);
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
@@ -98,7 +98,7 @@ test('new pace is default even for legacy slow preference; new explicit choice i
 });
 
 test('long-jump cue explicitly waits before requesting the second tap',()=>{
- const ui=setup();ui.tick(6.65);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ const ui=setup();ui.run('game.elapsed=6.64;game.courseIndex=1;');ui.tick(.01);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
  assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
  ui.tick(.42);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
@@ -122,5 +122,71 @@ test('last collision stops music preserving hiss, and result uses separate cours
  assert.equal(ui.game.status,'finished');assert.equal(ui.el('result-title').textContent,'다시 달려볼까요?');
  assert(ui.run("Object.hasOwn(saved,'score_v7_normal')"));
  ui.el('again').emit('click');assert.equal(ui.game.hitCount,0);assert.equal(ui.game.hearts,3);
- assert.equal(ui.run('terminalFeedbackUntil'),0);
+ assert.equal(ui.run('pausedStatus'),null);assert.equal(ui.game.reactionRemaining,0);
+});
+
+
+// Exercise the real Phaser scene update method with drawing-only doubles.
+// No browser/GPU claims: native browser checks remain a separate QA step.
+function renderedUI(mode='normal') {
+ const ui=setup({mode,paceVersion:4});
+ const definition=controller.slice(controller.indexOf('class RunnerScene'),controller.indexOf('\n  const host='));
+ ui.run('globalThis.Phaser={Scene:class{}};globalThis.TestScene='+definition+';');
+ ui.run(`
+ const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAlpha')o.alpha=v[0];if(k==='setVisible')o.visible=v[0];return n.proxy;}});};
+ const drawNode=()=>{const n=node();n.proxy=n;return n;};
+ scene=new TestScene();scene.scale={width:720,height:420};scene.cameraTop=0;
+ for(const name of ['cat','shadow','ring','rescue','backdrop','finishGate','hissLabel'])scene[name]=drawNode();
+ scene.lamps=[];scene.fireflies=[];scene.puff=()=>{};scene.syncObjects=()=>{};
+ scene.collectEffect=scene.landEffect=scene.clearEffect=scene.finishEffect=()=>{};
+ scene.tweens={paused:false,pauseAll(){this.paused=true;},resumeAll(){this.paused=false;},killAll(){this.paused=false;}};
+ `);
+ ui.frame=(dt=1/120)=>ui.run(`scene.update(0,${dt*1000})`);
+ ui.collide=(hearts=3)=>{ui.run(`game.hearts=${hearts};game.obstacles=[{id:999,x:CAT_X+50,w:44,h:42,hit:false}];`);ui.frame();};
+ return ui;
+}
+
+test('real scene freezes the world, faces player, blocks taps, and resumes once at both speeds',()=>{
+ for(const mode of ['normal','gentle']) {
+  const ui=renderedUI(mode);ui.collide();
+  assert.equal(ui.game.hearts,2);assert.equal(ui.game.reactionRemaining,.85);
+  const frozen=ui.run('JSON.stringify({elapsed:game.elapsed,distance:game.distance,y:game.y,vy:game.vy,invincible:game.invincible,obstacles:game.obstacles,treats:game.treats,visualClock})');
+  assert.equal(ui.run('scene.cat.texture'),'hiss');assert.equal(ui.run('scene.cat.alpha'),1);
+  assert.equal(ui.run('scene.tweens.paused'),true);assert.equal(ui.el('jump').disabled,true);
+  ui.el('jump').emit('pointerdown',pointer);ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});ui.el('jump').emit('click',{detail:0});
+  assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);assert.equal(ui.game.jumpCount,0);
+  for(let i=0;i<50;i++)ui.frame();
+  assert.equal(ui.run('JSON.stringify({elapsed:game.elapsed,distance:game.distance,y:game.y,vy:game.vy,invincible:game.invincible,obstacles:game.obstacles,treats:game.treats,visualClock})'),frozen);
+  while(ui.game.reactionRemaining>0)ui.frame();
+  assert.equal(ui.game.status,'running');assert.equal(ui.run('scene.tweens.paused'),false);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='hit').length"),1);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),1);
+  const before=ui.game.elapsed;ui.frame();assert(ui.game.elapsed>before);assert.equal(ui.game.hitCount,1);
+  // A held rejected key does not become a delayed jump when its repeat arrives.
+  ui.document.emit('keydown',{code:'Space',repeat:true,target:ui.el('jump')});assert.equal(ui.game.jumpCount,0);
+  ui.document.emit('keyup',{code:'Space'});ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});assert.equal(ui.game.jumpCount,1);
+ }
+});
+
+test('manual pause and blur preserve reaction phase and terminal intent',()=>{
+ for(const hearts of [3,1])for(const action of ['pause','blur']) {
+  const ui=renderedUI();ui.collide(hearts);for(let i=0;i<25;i++)ui.frame();
+  const remaining=ui.game.reactionRemaining,elapsed=ui.game.elapsed;
+  if(action==='pause')ui.el('pause').emit('click');else ui.window.emit('blur');
+  assert.equal(ui.game.status,'paused');for(let i=0;i<180;i++)ui.frame();
+  assert.equal(ui.game.reactionRemaining,remaining);assert.equal(ui.game.elapsed,elapsed);
+  ui.el('resume').emit('click');assert.equal(ui.game.status,hearts===1?'finished':'running');
+  assert.equal(ui.run('scene.tweens.paused'),true);assert.equal(ui.el('jump').disabled,true);
+  while(ui.game.reactionRemaining>0)ui.frame();
+  if(hearts===1){assert.equal(ui.game.status,'finished');assert.equal(ui.run('finished'),true);assert.equal(ui.el('result-title').textContent,'다시 달려볼까요?');for(let i=0;i<30;i++)ui.frame();assert.equal(ui.game.elapsed,elapsed);}
+  else{assert.equal(ui.run('finished'),false);ui.frame();assert(ui.game.elapsed>elapsed);}
+ }
+});
+
+test('restart during a reaction removes its pose and cannot fire an old resume',()=>{
+ const ui=renderedUI();ui.collide();ui.el('pause').emit('click');ui.el('restart').emit('click');
+ assert.equal(ui.game.status,'ready');assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.run('scene.hissLabel.visible'),false);assert.equal(ui.run('pausedStatus'),null);
+ ui.el('start').emit('click');for(let i=0;i<150;i++)ui.frame();
+ assert.equal(ui.game.hearts,3);assert.equal(ui.game.hitCount,0);assert.equal(ui.game.reactionRemaining,0);
+ assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),0);
 });

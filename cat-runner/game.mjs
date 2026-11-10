@@ -1,4 +1,4 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt } from './engine.mjs';
+import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS } from './engine.mjs';
 import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 
@@ -18,7 +18,7 @@ const audio = new RunnerAudio();
 let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
 let lastSegment = '', finished = false, visualClock = 0;
 let heldInput = null;
-let terminalFeedbackUntil = 0;
+let pausedStatus = null;
 
 function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {} }
 function announce(text) { $('announcement').textContent = text; }
@@ -31,7 +31,7 @@ function start() {
   endJump();
   game = createGame(mode, scene.scale.width); game.status = 'running';
   noticeUntil = 0; toastUntil = 0; finished = false; lastSegment = '';
-  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0; terminalFeedbackUntil = 0;
+  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0; pausedStatus = null;
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
@@ -39,7 +39,7 @@ function start() {
   audio.start(); updateHUD();
 }
 function doJump() {
-  if (game.status !== 'running' || heldInput !== null) return;
+  if (game.status !== 'running' || game.reactionRemaining > 0 || heldInput !== null) return;
   if (jump(game)) jumpFeedback();
 }
 function jumpFeedback() {
@@ -47,7 +47,7 @@ function jumpFeedback() {
   updateHUD();
 }
 function beginJump(source) {
-  if (game.status !== 'running' || heldInput !== null) return;
+  if (game.status !== 'running' || game.reactionRemaining > 0 || heldInput !== null) return;
   heldInput = source;
   $('jump').classList.add('is-held');
   if (pressJump(game)) jumpFeedback();
@@ -59,7 +59,7 @@ function endJump(source = null) {
   $('jump').classList.remove('is-held');
 }
 function pointerPress(event) {
-  if (!event.isPrimary || event.button !== 0 || game.status !== 'running') return;
+  if (!event.isPrimary || event.button !== 0 || game.status !== 'running' || game.reactionRemaining > 0) return;
   event.preventDefault();
   const source = `pointer:${event.pointerId}`;
   if (heldInput !== null) return;
@@ -69,21 +69,23 @@ function pointerPress(event) {
 function pointerRelease(event) { endJump(`pointer:${event.pointerId}`); }
 function pause() {
   endJump();
-  if (game.status !== 'running') return;
-  game.status = 'paused'; scene.tweens.pauseAll(); audio.pause();
+  if (game.status !== 'running' && !(game.status === 'finished' && game.reactionRemaining > 0)) return;
+  pausedStatus = game.status; game.status = 'paused'; scene.tweens.pauseAll(); audio.pause();
   $('pause').disabled = $('jump').disabled = true;
   overlay('pause-card'); $('resume').focus({ preventScroll:true }); announce('잠깐 쉬는 중.');
 }
 function resume() {
   if (game.status !== 'paused') return;
-  game.status = 'running'; scene.tweens.resumeAll(); audio.resume();
-  overlay(null); $('pause').disabled = $('jump').disabled = false;
-  $('jump').focus({ preventScroll:true }); announce('이어서 산책해요.');
+  game.status = pausedStatus === 'finished' ? 'finished' : 'running'; pausedStatus = null;
+  if (game.reactionRemaining <= 0) { scene.tweens.resumeAll(); audio.resume(); }
+  overlay(null); $('pause').disabled = false; $('jump').disabled = game.reactionRemaining > 0;
+  (game.reactionRemaining > 0 ? $('pause') : $('jump')).focus({ preventScroll:true });
+  updateHUD(); announce(game.reactionRemaining > 0 ? '하악이 끝나면 이어서 달려요.' : '이어서 산책해요.');
 }
 function showStart() {
   endJump(); audio.stop();
   scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
-  terminalFeedbackUntil = 0; scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
+  pausedStatus = null; scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
   overlay('start-card'); $('start').focus({preventScroll:true}); updateHUD();
 }
@@ -124,11 +126,18 @@ function updateHUD() {
     $('segment-label').textContent=game.segment.name;
     if(lastSegment!==game.segment.id) {if(lastSegment && game.status==='running')toast(game.segment.name,2);lastSegment=game.segment.id;}
   }
-  const airborne=game.status==='running' && !game.grounded;
+  const reacting=game.reactionRemaining>0;
+  const airborne=game.status==='running' && !reacting && !game.grounded;
   const canDouble=airborne && game.jumpCount===1;
   $('jump-label').textContent=canDouble?'한 번 더':'점프';
   $('jump').classList.toggle('can-double',canDouble);
   $('jump-state').textContent=canDouble?'공중에서 한 번 더 가능':airborne?'착지하면 다시 점프해요':'한 번 톡 = 낮은 점프';
+  if(reacting) {
+    $('jump').disabled=true; $('jump-label').textContent='잠깐';
+    $('jump-state').textContent=game.hearts>0?'후와가 진정하면 다시 달려요':'후와가 잠깐 진정하는 중';
+    $('hint').textContent='하악! 잠깐만요…'; $('hint').classList.add('visible');
+    $('course-toast').classList.remove('visible'); return;
+  }
   if(game.status!=='running') return;
   $('jump').disabled=game.elapsed<game.recoveryUntil;
   if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
@@ -152,10 +161,10 @@ function updateHUD() {
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
   if(event.type==='land') scene.landEffect();
-  if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
+  if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.hearts>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
   if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); audio.play('boost'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
-  if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();audio.play('hit');announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} 기운 ${game.hearts}개가 남았어요.`);}
+  if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit');audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} 기운 ${game.hearts}개가 남았어요.`);}
 }
 for(const input of document.querySelectorAll('[name="mode"]')) {
   input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
@@ -180,23 +189,23 @@ document.addEventListener('keydown',event=>{
     if(event.target.matches('button')&&event.target!==$('jump'))return;
     event.preventDefault();if(!event.repeat)beginJump(`key:${event.code}`);
   } else if((event.code==='Escape'||event.code==='KeyP')&&!event.repeat) {
-    if(game.status==='running')pause();else if(game.status==='paused')resume();
+    if(game.status==='paused')resume();else pause();
   }
 });
 document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code==='ArrowUp')endJump(`key:${event.code}`);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
-$('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'){audio.resume();audio.play('collect');}});
+$('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'&&game.reactionRemaining<=0){audio.resume();audio.play('collect');}});
 document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
 document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 코스 · 기운 3개 · 점프 버튼 하나`;
 
 function bootPhaser() {
   const Phaser = window.Phaser;
   class RunnerScene extends Phaser.Scene {
-    constructor() { super('Runner'); this.boxes = new Map(); this.treats = new Map(); this.fx = []; this.lastFootstep = 0; this.landAt = -1; this.hissAt = -1; }
+    constructor() { super('Runner'); this.boxes = new Map(); this.treats = new Map(); this.fx = []; this.lastFootstep = 0; this.landAt = -1; this.reactionFootY = GROUND + 1; }
     preload() {
       this.load.image('fuwa', './assets/fuwa-generated.png');
       this.load.image('motion', './assets/fuwa-motion-v1.png');
-      this.load.image('hiss', './assets/fuwa-hiss-v1.png');
+      this.load.image('hiss', './assets/fuwa-hiss-front-v1.png');
       this.load.image('alley', './assets/moonlit-alley-v1.png');
       this.load.on('loaderror', () => { loaded = false; $('start').textContent = '그림을 불러오지 못했어요'; announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.'); });
     }
@@ -204,7 +213,7 @@ function bootPhaser() {
       scene = this;
       if (!['fuwa', 'motion', 'hiss', 'alley'].every(key => this.textures.exists(key))) return;
       this.textures.get('fuwa').add('trimmed', 0, 51, 96, 1449, 810);
-      this.textures.get('hiss').add('trimmed', 0, 50, 85, 1600, 740);
+      this.textures.get('hiss').add('trimmed', 0, 0, 150, 1170, 1000);
       const atlas = this.textures.get('motion');
       // Equal normalized cells, using rounded shared edges. Common registration
       // preserves the real flight poses instead of grounding every paw separately.
@@ -223,6 +232,7 @@ function bootPhaser() {
       this.fireflies = Array.from({length: 15}, (_, i) => this.add.circle((i * 137 + 40) % this.scale.width, 90 + (i * 43) % 170, i % 3 ? 1.5 : 2.2, 0xffdfa0, .25).setDepth(-4));
       this.shadow = this.add.ellipse(CAT_X + 65, GROUND + 5, 115, 13, 0x08252b, .36).setDepth(1);
       this.cat = this.add.image(CAT_X + 66, GROUND + 2, 'fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setDepth(10);
+      this.hissLabel = this.add.text(CAT_X+66,GROUND-130,'하악!',{fontFamily:'sans-serif',fontSize:'28px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16).setVisible(false);
       this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
       this.finishGate = this.add.container(0, GROUND).setDepth(4);
       this.finishGate.add(this.add.image(0, 0, 'garden-gate').setOrigin(.5, 1));
@@ -294,8 +304,8 @@ function bootPhaser() {
     resetRun() {
       this.tweens.killAll(); for (const item of this.fx) item.destroy(); this.fx = [];
       for (const item of this.boxes.values()) item.destroy(); for (const item of this.treats.values()) item.destroy(); this.boxes.clear(); this.treats.clear();
-      this.lastFootstep = 0; this.landAt = -1; this.hissAt = -1; this.finishGate?.setVisible(false);
-      this.cat?.setAngle(0).setAlpha(1).clearTint();
+      this.lastFootstep = 0; this.landAt = -1; this.reactionFootY = GROUND + 1; this.finishGate?.setVisible(false);
+      this.cat?.setAngle(0).setAlpha(1).clearTint(); this.hissLabel?.setVisible(false);
     }
     puff(x, y, count = 4, color = 0xf6e4b8) {
       if (reducedMotion.matches) return;
@@ -312,13 +322,11 @@ function bootPhaser() {
     }
     clearEffect() { if (game.streak % 3 === 0) this.puff(CAT_X + 80, GROUND - game.y - 70, 8, 0xe5f4b9); }
     hitEffect() {
-      this.hissAt = visualClock;
-      if (!reducedMotion.matches) this.cameras.main.shake(100, .002);
-      this.puff(CAT_X + 96, GROUND - game.y - 24, 7, 0xf7bd8b);
-      const label=this.add.text(CAT_X+114,GROUND-game.y-115,'하악!',{fontFamily:'sans-serif',fontSize:'26px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16);
-      this.fx.push(label);
-      this.tweens.add({targets:label,y:label.y-(reducedMotion.matches?0:12),alpha:0,duration:620,onComplete:()=>this.removeEffect(label)});
+      // Freeze every world tween. The expression uses its own reaction clock.
+      this.tweens.pauseAll();
+      this.reactionFootY=Math.min(GROUND-game.y+1,this.cameraTop+this.scale.height-24);
     }
+
     finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, this.cameraTop+150, 14, 0xffd88f); this.puff(this.scale.width * .75, this.cameraTop+150, 14, 0xbfd9a8); } }
     drawTerrain() {
       const g=this.terrain, bottom=this.cameraTop+this.scale.height+100;
@@ -390,41 +398,55 @@ function bootPhaser() {
     }
     update(time, delta) {
       if (!loaded) return;
-      if (game.status === 'running') {
-        visualClock += Math.min(delta / 1000, .1); let remaining = Math.min(delta / 1000, .1);
-        while (remaining > 0) { const dt = Math.min(remaining, 1 / 120); step(game, dt); for (const event of game.events || []) handleEvent(event); remaining -= dt; if (game.status !== 'running') break; }
-        updateHUD();
-        if(game.status==='won') finish();
-        else if(game.status==='finished') {
-          endJump(); $('pause').disabled=$('jump').disabled=true;
-          terminalFeedbackUntil=visualClock+.62;
-          // Stop the melody immediately, but let the last short hiss finish.
-          audio.stop({preserveHit:true});
+      const frameDt=Math.min(delta/1000,.1);
+      if(game.reactionRemaining>0) {
+        // Consume only reaction time. Even the frame completing it never
+        // catches the world up or spends the user's remaining run time.
+        if(game.status==='running'||game.status==='finished') {
+          let left=frameDt, completed=false;
+          while(left>0&&game.reactionRemaining>0) {
+            const dt=Math.min(left,1/120); completed=advanceReaction(game,dt)||completed; left-=dt;
+          }
+          if(completed) {
+            if(game.status==='finished') finish();
+            else { this.tweens.resumeAll();audio.resume({fromGesture:false});announce('후와가 다시 달려요.'); }
+          }
         }
+        updateHUD();
+      } else if(game.status==='running') {
+        let remaining=frameDt;
+        while(remaining>0) {
+          const dt=Math.min(remaining,1/120), before=game.elapsed;
+          step(game,dt); visualClock+=game.elapsed-before;
+          for(const event of game.events||[])handleEvent(event);
+          if(game.reactionRemaining>0)this.tweens.pauseAll();
+          remaining-=dt;
+          if(game.reactionRemaining>0||game.status!=='running')break;
+        }
+        updateHUD();
+        if(game.status==='won'||(game.status==='finished'&&game.reactionRemaining<=0))finish();
       }
-      if(game.status==='finished'&&!finished) {
-        visualClock+=Math.min(delta/1000,.1);
-        if(visualClock>=terminalFeedbackUntil) finish();
-      }
-      const running = game.status === 'running', activePose = game.status === 'running' || game.status === 'paused';
-      const hissAge=this.hissAt<0?Infinity:visualClock-this.hissAt;
-      const hissing=hissAge>=0&&hissAge<.55;
+      const hissing=game.reactionRemaining>0;
+      const running=game.status==='running'&&!hissing, activePose=game.status==='running'||game.status==='paused';
+      const hissAge=game.reactionElapsed;
       if(hissing) {
-        // One generated expression pose plus a short procedural recoil, not
-        // a frame-by-frame facial animation. Its paws share the ground anchor.
-        this.cat.setTexture('hiss','trimmed').setOrigin(.5,723/740).setDisplaySize(186,86.025).setAngle(reducedMotion.matches?0:-3*Math.sin(Math.PI*hissAge/.55));
-      } else if (activePose) {
-        const pose = !game.grounded ? (game.vy > 0 ? 6 : 7) : Math.floor(visualClock * 13 * MODES[game.mode].speed / 360) % 6;
-        this.cat.setTexture('motion', `pose-${pose}`).setOrigin(.5, 295 / 310).setScale(.42).setAngle(0);
-      } else this.cat.setTexture('fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setAngle(0);
-      const recoil=hissing&&!reducedMotion.matches?10*Math.sin(Math.PI*hissAge/.55):0;
-      this.cat.setPosition(CAT_X + 66-recoil, GROUND - game.y + 1);
+        // A new front-facing pose with a brief procedural settle. This is a
+        // pose change, not a falsely claimed frame-by-frame turning animation.
+        const settle=reducedMotion.matches?1:1+.035*Math.sin(Math.PI*Math.min(1,hissAge/.18));
+        this.cat.setTexture('hiss','trimmed').setOrigin(.5,.974).setDisplaySize(124.02*settle,106/settle).setAngle(0);
+      } else if(activePose) {
+        const pose=!game.grounded?(game.vy>0?6:7):Math.floor(visualClock*13*MODES[game.mode].speed/360)%6;
+        this.cat.setTexture('motion',`pose-${pose}`).setOrigin(.5,295/310).setScale(.42).setAngle(0);
+      } else this.cat.setTexture('fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setAngle(0);
+      const catFootY=hissing?this.reactionFootY:GROUND-game.y+1;
+      this.cat.setPosition(CAT_X+66,catFootY);
+      this.hissLabel.setPosition(CAT_X+66,catFootY-135).setVisible(hissing).setAlpha(hissing?Math.min(1,game.reactionRemaining/.12):0);
       const rescuing=game.elapsed<game.recoveryUntil;
-      this.cat.setAlpha(rescuing?.45:game.invincible>0?.72:1);
-      this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing);
+      this.cat.setAlpha(hissing?1:rescuing?.45:game.invincible>0?.72:1);
+      this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing&&!hissing);
       const heightAboveFloor=game.floorHeight===null?200:Math.max(0,game.y-game.floorHeight);
-      this.shadow.setPosition(CAT_X+65,GROUND-(game.floorHeight??0)+5).setVisible(game.floorHeight!==null&&!rescuing).setScale(Math.max(.42,1-heightAboveFloor/400),1).setAlpha(Math.max(0,.34-heightAboveFloor/1000));
-      this.ring.setPosition(CAT_X + 70, GROUND - game.y - 47).setVisible(game.invincible > 0);
+      this.shadow.setPosition(CAT_X+65,GROUND-(game.floorHeight??0)+5).setVisible(game.floorHeight!==null&&!rescuing&&!hissing).setScale(Math.max(.42,1-heightAboveFloor/400),1).setAlpha(Math.max(0,.34-heightAboveFloor/1000));
+      this.ring.setPosition(CAT_X+70,catFootY-48).setVisible(game.invincible>0&&!hissing);
       const distance = reducedMotion.matches ? 0 : game.distance;
       this.backdrop.x = -Math.min(200, distance * .012);
       for (let i = 0; i < this.lamps.length; i++) this.lamps[i].x = ((i * 340 + 240 - distance * .32) % 1700 + 1700) % 1700 - 100;

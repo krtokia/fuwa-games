@@ -193,3 +193,15 @@ test('cleanup still disconnects remaining nodes when a source stop or filter dis
   assert.equal(voice.source.disconnects, 1); assert.equal(voice.nodes[2].disconnects, 1); assert.equal(voice.gain.disconnects, 1);
   assert.equal(voice.source.onended, null); f.audio.dispose();
 });
+
+
+test('hit-stop pause keeps only hiss and resumes melody position without unlocking',()=>{
+ const f=playing();f.audio.play('hit');const voice=hissVoice(f),step=f.audio.step;
+ f.audio.pause({preserveHit:true});assert.equal(f.audio.running,false);assert.equal(f.timers.size,0);
+ assert.equal(f.audio.voices.size,1);assert.equal(hissVoice(f),voice);assert.equal(f.audio.step,step);
+ f.audio.resume({fromGesture:false});assert.equal(f.audio.running,true);assert.equal(f.timers.size,1);
+ assert(f.audio.step>=step);f.audio.pause();assert.equal(f.audio.voices.size,0);
+ f.context.state='suspended';f.audio.resume({fromGesture:false});
+ assert.equal(f.context.state,'suspended');assert.equal(f.timers.size,0);
+ f.audio.resume();assert.equal(f.context.state,'running');assert.equal(f.timers.size,1);f.audio.dispose();
+});

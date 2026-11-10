@@ -13,7 +13,7 @@ engine = (root / 'engine.mjs').read_text().replace('export ', '')
 viewport = (root / 'viewport.mjs').read_text().replace('export ', '')
 audio = (root / 'audio.mjs').read_text().replace('export ', '')
 game = re.sub(r'^import .*;\n', '', (root / 'game.mjs').read_text(), flags=re.M)
-for asset in ['fuwa-generated.png', 'fuwa-motion-v1.png', 'fuwa-hiss-v1.png', 'moonlit-alley-v1.png']:
+for asset in ['fuwa-generated.png', 'fuwa-motion-v1.png', 'fuwa-hiss-front-v1.png', 'moonlit-alley-v1.png']:
     uri = 'data:image/png;base64,' + base64.b64encode((root / 'assets' / asset).read_bytes()).decode()
     html = html.replace('./assets/' + asset, uri)
     game = game.replace('./assets/' + asset, uri)

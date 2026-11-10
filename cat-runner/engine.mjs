@@ -12,6 +12,8 @@ export const JUMP_SPEED = 380;
 // A second tap resets upward speed, never adds velocity: at most ~180.5px total.
 export const SECOND_JUMP_SPEED = 380;
 export const FIXED_STEP = 1 / 120;
+// A hit freezes the world. Only advanceReaction may run this separate clock.
+export const HIT_REACTION_SECONDS = .85;
 // Time-domain geometry keeps the same traversal/flight budget at both speeds.
 export const TERRAIN = Object.freeze([
   { start: -10, end: 10, height: 0 },
@@ -67,13 +69,14 @@ export function createGame(mode = 'normal', width = 720) {
   return { mode, width, status: 'ready', elapsed: 0, distance: 0, hearts: 3,
     snacks: 0, stars: 0, score: 0, combo: 0, y: 0, vy: 0, grounded: true, floorHeight: 0, recoveryUntil: 0, invincible: 0,
     jumpHeld: false, jumpCount: 0, jumpStartedAt: null, pendingBoost: null,
+    reactionElapsed: 0, reactionRemaining: 0,
     obstacles: [], treats: [], serial: 0, event: '', events: [], hitCount: 0,
     cleared: 0, streak: 0, bestStreak: 0, segment: SEGMENTS[0], progress: 0,
     courseIndex: 0, snackIndex: 0, accumulator: 0 };
 }
 // Atomic tap API. It cannot bypass an existing physical held press.
 export function jump(game) {
-  if (game.status !== 'running' || game.jumpHeld) return false;
+  if (game.status !== 'running' || game.reactionRemaining > 0 || game.jumpHeld) return false;
   const accepted = pressJump(game);
   releaseJump(game);
   return accepted;
@@ -93,7 +96,7 @@ function requestJump(game) {
 // Only a fresh press edge can jump. Landing resets the count, not the held latch.
 // There is no landing buffer: a rejected third press is never replayed later.
 export function pressJump(game) {
-  if (game.status !== 'running' || game.jumpHeld) return false;
+  if (game.status !== 'running' || game.reactionRemaining > 0 || game.jumpHeld) return false;
   game.jumpHeld = true;
   return requestJump(game);
 }
@@ -112,6 +115,19 @@ function emit(game, type, details = {}) {
   // Terminal / hit feedback must not be hidden by a simultaneous snack or landing.
   const priority = { recover: 4, fall: 4, land: 0, boost: 1, clear: 2, snack: 3, hit: 4, won: 5, finished: 5 };
   if (!game.event || priority[type] >= priority[game.event]) game.event = type;
+}
+function damage(game, details) {
+  if (game.invincible > 0 || game.reactionRemaining > 0) return;
+  game.hearts = Math.max(0, game.hearts - 1);
+  game.hitCount++;
+  game.invincible = 2.2;
+  game.reactionElapsed = 0;
+  game.reactionRemaining = HIT_REACTION_SECONDS;
+  emit(game, 'hit', details);
+  if (game.hearts === 0) {
+    game.status = 'finished';
+    emit(game, 'finished');
+  }
 }
 // Foot support is at CAT_X+70; obstacle collision retains its forgiving body core.
 // Land only on a descending crossing of an existing horizontal surface.
@@ -151,11 +167,7 @@ function recover(game,reason,safe) {
     o.encounterAt+o.duration+1>=game.elapsed);
   if(encounter) encounter.hit=true;
   game.streak=0;game.combo=0;
-  if(game.invincible<=0) {
-    game.hearts=Math.max(0,game.hearts-1);game.hitCount++;game.invincible=2.2;
-    emit(game,'hit',{reason});
-  }
-  if(game.hearts===0) {game.status='finished';emit(game,'finished');return;}
+  damage(game,{reason});
   // A short explicit rescue carries the cat to the approaching safe lip without
   // advancing world time or letting one missed hole repeatedly drain hearts.
   game.y=safe.height;game.vy=0;game.grounded=true;game.jumpCount=0;
@@ -220,15 +232,8 @@ function tick(game, dt) {
       // Mark even protected contacts, so they cannot become a later hit or clean clear.
       obstacle.hit = true;
       game.streak = 0; game.combo = 0;
-      if (game.invincible <= 0) {
-        game.hearts = Math.max(0, game.hearts - 1);
-        game.hitCount += 1;
-        game.invincible = 2.2;
-        emit(game, 'hit', { id: obstacle.id, x: obstacle.x + 22, y: GROUND - 22 });
-        if (game.hearts === 0) {
-          game.status = 'finished'; emit(game, 'finished'); return;
-        }
-      }
+      damage(game, { id: obstacle.id, x: obstacle.x + 22, y: GROUND - 22 });
+      if (game.status === 'finished') return;
     }
     if (!obstacle.cleared && obstacle.x + obstacle.w <= cat.x) {
       obstacle.cleared = true;
@@ -256,20 +261,37 @@ function tick(game, dt) {
   }
   game.obstacles = game.obstacles.filter(o => o.x + o.w > -80);
   game.treats = game.treats.filter(t => t.x > -60 && !t.taken);
-  if (game.elapsed >= ROUND_SECONDS - 1e-9) {
+  if (game.elapsed >= ROUND_SECONDS - 1e-9 && game.reactionRemaining <= 0) {
     game.elapsed = ROUND_SECONDS; game.progress = 1;
     game.distance = speed * ROUND_SECONDS;
     game.status = 'won'; emit(game, 'won');
   }
 }
 export function step(game, rawDt) {
-  // Paused/terminal states are immutable, including their last frame's event list.
-  if (game.status !== 'running') return;
+  // Frozen/paused/terminal states keep even their last frame's event list.
+  // Renderers consume events only after a world step, never on reaction frames.
+  if (game.status !== 'running' || game.reactionRemaining > 0) return;
   game.event = ''; game.events = [];
   if (!Number.isFinite(rawDt)) return;
   game.accumulator += Math.max(0, Math.min(rawDt, 1 / 30));
   while (game.accumulator >= FIXED_STEP - 1e-10 && game.status === 'running') {
     game.accumulator = Math.max(0, game.accumulator - FIXED_STEP);
     tick(game, FIXED_STEP);
+    if (game.reactionRemaining > 0) {
+      // Discard the rest of this rendered frame: no queued physics after a hit.
+      game.accumulator = 0;
+      return;
+    }
   }
+}
+// Explicit presentation-time API, including a last-heart reaction while finished.
+// Manual pause blocks this clock too. Completion never advances or revives a world.
+// True is returned exactly once, on the call that completes an active reaction.
+export function advanceReaction(game, rawDt) {
+  if (!['running','finished'].includes(game.status) || game.reactionRemaining <= 0 || !Number.isFinite(rawDt)) return false;
+  const elapsed = Math.min(HIT_REACTION_SECONDS, game.reactionElapsed + Math.max(0, Math.min(rawDt, 1 / 30)));
+  const complete = HIT_REACTION_SECONDS - elapsed <= 1e-10;
+  game.reactionElapsed = complete ? HIT_REACTION_SECONDS : elapsed;
+  game.reactionRemaining = complete ? 0 : HIT_REACTION_SECONDS - elapsed;
+  return complete;
 }

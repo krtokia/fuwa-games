@@ -46,7 +46,7 @@ test('real motion atlas and painted backdrop are local with registered runtime f
  assert.equal(motion.readUInt32BE(16),1774);assert.equal(motion.readUInt32BE(20),887);assert.equal(motion[25],6);
  const background=readFileSync(file('assets/moonlit-alley-v1.png'));
  assert.equal(background.readUInt32BE(16),2172);assert.equal(background.readUInt32BE(20),724);
- assert(game.includes('i < 8'));assert(game.includes('295 / 310'));assert(game.includes("? 6 : 7"));
+ assert(game.includes('i < 8'));assert(/295\s*\/\s*310/.test(game));assert(/\?\s*6\s*:\s*7/.test(game));
  assert(game.includes('distance * .012'));assert(game.includes('Math.min(200,'));
 });
 test('score, obstacle hints and audio lifecycle are connected',()=>{
@@ -77,12 +77,12 @@ test('high obstacle is a visible solid stack with two-chevron cue',()=>{
 });
 
 test('hiss uses a transparent generated pose with reset and reduced-motion fallback',()=>{
- const pose=readFileSync(file('assets/fuwa-hiss-v1.png'));
- assert.equal(pose.readUInt32BE(16),1774);assert.equal(pose.readUInt32BE(20),887);assert.equal(pose[25],6);
- assert(game.includes("this.load.image('hiss', './assets/fuwa-hiss-v1.png')"));
- assert(game.includes("this.hissAt = -1; this.finishGate"));assert(game.includes("setTexture('hiss','trimmed')"));
- assert(game.includes('hissing&&!reducedMotion.matches'));assert(game.includes("'하악!'"));
- assert(game.includes('terminalFeedbackUntil=visualClock+.62'));
- assert(game.includes('audio.stop({preserveHit:true})'));
- assert(readFileSync(file('scripts/build-standalone.py'),'utf8').includes('fuwa-hiss-v1.png'));
+ const pose=readFileSync(file('assets/fuwa-hiss-front-v1.png'));
+ assert.equal(pose.readUInt32BE(16),1254);assert.equal(pose.readUInt32BE(20),1254);assert.equal(pose[25],6);
+ assert(game.includes("this.load.image('hiss', './assets/fuwa-hiss-front-v1.png')"));
+ assert(game.includes("this.reactionFootY = GROUND + 1; this.finishGate"));assert(game.includes("setTexture('hiss','trimmed')"));
+ assert(game.includes('reducedMotion.matches?1:1+.035'));assert(game.includes("'하악!'"));
+ assert(game.includes('advanceReaction(game,dt)'));assert(game.includes('visualClock+=game.elapsed-before'));
+ assert(game.includes('audio.pause({preserveHit:true})'));
+ assert(readFileSync(file('scripts/build-standalone.py'),'utf8').includes('fuwa-hiss-front-v1.png'));
 });
