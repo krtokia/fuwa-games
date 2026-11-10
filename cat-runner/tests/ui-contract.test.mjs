@@ -24,19 +24,19 @@ test('generated PNG is a full-size RGBA raster, not an SVG replacement',()=>{
  assert.equal(data[25],6);assert(/this\.load\.image\('fuwa',\s*'\.\/assets\/fuwa-generated\.png'\)/.test(game));assert(!game.includes('fuwa.svg'));
 });
 test('HTML duration agrees with the authored course',()=>{
- assert(html.includes(`aria-valuemax="${ROUND_SECONDS}"`));assert(html.includes(`${ROUND_SECONDS}초 산책`));
+ assert(html.includes(`aria-valuemax="${ROUND_SECONDS}"`));assert(html.includes(`${ROUND_SECONDS}초 코스`));
 });
 test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>{
  assert(game.includes("target.addEventListener('pointerdown',pointerPress)"));
  assert(game.includes("$('jump'), $('game-canvas')"));
  assert(game.includes("target.addEventListener('pointercancel',pointerRelease)"));
  assert(game.includes("document.addEventListener('keyup'"));
- assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(/next\s*!==\s*oldWidth\)\s*\{\s*pause\(\)/.test(game));
+ assert(game.includes("window.addEventListener('blur',pause)"));assert(game.includes("document.addEventListener('visibilitychange'"));assert(game.includes('next.width!==view.width||next.height!==view.height){pause()'));
 });
 test('Phaser MIT license is retained',()=>{const license=readFileSync(file('vendor/PHASER-LICENSE.md'),'utf8');assert(license.includes('MIT'));assert(readFileSync(file('vendor/phaser-3.90.0.min.js')).length>1000000);});
 
 test('tutorial describes two separate taps and denies any hold-height effect',()=>{
- assert(html.includes('공중에서 한 번 더 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
+ assert(html.includes('공중에서 잠깐 뒤 다시 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
  assert(html.includes('id="jump-label"'));assert(html.includes('id="jump-state"'));
  assert(!html.includes('꾹 누르면'));assert(!game.includes('hold threshold'));
 });
@@ -60,4 +60,12 @@ test('jump cues live in controls so a high arc cannot cover the cat',()=>{
  assert(html.indexOf('id="hint"')>html.indexOf('class="controls"'));
  assert(html.indexOf('id="hint"')>html.indexOf('class="progress"'));
  assert(readFileSync(file('style.css'),'utf8').includes('.control-tip .hint{position:static'));
+});
+
+test('actual terrain replaces the old uninterrupted road and uses floor-aware rendering',()=>{
+ assert(game.includes('terrainSegments(game)'));assert(game.includes('this.drawTerrain()'));
+ assert(!game.includes('this.road.tilePositionX'));assert(game.includes('!game.grounded'));
+ assert(game.includes('game.floorHeight!==null'));assert(game.includes('box.baseY??GROUND'));
+ assert(game.includes("if(event.type==='recover')"));assert(game.includes('game.jumpStartedAt'));
+ assert(game.includes("worldViewport(host.clientWidth,host.clientHeight)"));
 });

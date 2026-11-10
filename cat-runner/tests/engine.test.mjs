@@ -1,235 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, jump, pressJump, releaseJump, JUMP_SPEED, SECOND_JUMP_SPEED, step, MODES, ROUND_SECONDS, GROUND, CAT_X, jumpCueSeconds, COURSE, SEGMENTS, ENCOUNTERS } from '../engine.mjs';
-function run(g,seconds,dt=1/120) {for(let t=0;t<seconds;t+=dt) step(g,dt);}
-function playing(mode='gentle') { const g=createGame(mode,440);g.status='running';return g; }
-test('unknown mode uses the normal default',()=>{for (const mode of ['bad', 'constructor', 'toString', '__proto__']) assert.equal(createGame(mode).mode,'normal');});
-test('jump only while playing, with at most two taps',()=>{const g=createGame();assert.equal(jump(g),false);g.status='running';assert.equal(jump(g),true);step(g,1/60);assert.equal(jump(g),true);assert.equal(g.jumpCount,2);const v=g.vy;assert.equal(jump(g),false);assert.equal(g.vy,v);assert.equal(g.jumpHeld,false);});
-test('jump returns to the same ground at 30, 60 and 120 fps',()=>{for(const hz of [30,60,120]) {const g=playing();jump(g);run(g,1.3,1/hz);assert.equal(g.y,0);assert.equal(g.vy,0);}});
-test('an exhausted tap just before landing is not buffered',()=>{const g=playing();g.y=2;g.vy=-400;g.jumpCount=2;assert.equal(jump(g),false);step(g,1/120);assert.equal(g.vy,0);assert.equal(g.y,0);assert.equal(g.jumpCount,0);});
-test('pause freezes time, obstacles and the cat',()=>{const g=playing();jump(g);run(g,.2);g.status='paused';const snapshot=JSON.stringify(g);step(g,1/60);assert.equal(JSON.stringify(g),snapshot);});
-test('one collision costs one heart and gives protection',()=>{const g=playing();g.obstacles=[{x:CAT_X+50,w:44,h:42,hit:false}];step(g,1/120);assert.equal(g.hearts,2);assert(g.invincible>0);run(g,.1);assert.equal(g.hearts,2);});
-test('jump clears the same box safely',()=>{const g=playing();g.y=100;g.obstacles=[{x:CAT_X+50,w:44,h:42,hit:false}];step(g,1/120);assert.equal(g.hearts,3);});
-test('third collision finishes the round',()=>{const g=playing();g.hearts=1;g.obstacles=[{x:CAT_X+50,w:44,h:42,hit:false}];step(g,1/120);assert.equal(g.hearts,0);assert.equal(g.status,'finished');});
-test('a treat is collected once',()=>{const g=playing();g.treats=[{x:CAT_X+60,y:GROUND-35,taken:false}];step(g,1/120);assert.equal(g.snacks,1);step(g,1/120);assert.equal(g.snacks,1);});
-test('welcome offers snacks before a four-second first encounter',()=>{const g=playing();run(g,1);assert.equal(g.obstacles.length,0);run(g,1);assert.equal(g.obstacles.length,1);assert.equal(g.obstacles[0].encounterAt,4);assert(g.obstacles[0].x>CAT_X+99);run(g,1);assert(g.snacks>0);});
-test('the round finishes at forty-four seconds',()=>{const g=playing();g.elapsed=ROUND_SECONDS-.01;step(g,1/60);assert.equal(g.status,'won');assert.equal(g.elapsed,ROUND_SECONDS);});
-test('speed is constant, long frames are bounded',()=>{const g=playing('normal');step(g,10);assert(g.elapsed<=1/30);assert.equal(g.distance,MODES.normal.speed/30);});
-test('restarting creates clean state',()=>{const g=playing();g.hearts=1;g.snacks=20;const fresh=createGame(g.mode);assert.equal(fresh.hearts,3);assert.equal(fresh.snacks,0);assert.equal(fresh.elapsed,0);});
-function cueRun(mode, width, hz, delay, secondDelay = .28, missedAt = null, held = false) {
- const g=createGame(mode,width); g.status='running';
- const scheduled=new Set(), events=[]; let jumpAt=Infinity, releaseAt=Infinity, secondAt=Infinity, useDouble=false;
- for(let frame=0; frame<ROUND_SECONDS*hz+10 && g.status==='running'; frame++) {
-  const cue=g.obstacles.find(o=>!o.hit&&!o.cleared&&o.encounterAt>g.elapsed&&
-    o.encounterAt-g.elapsed<=jumpCueSeconds(mode,o));
-  if(cue&&!scheduled.has(cue.encounterAt)) {
-   scheduled.add(cue.encounterAt);
-   if(cue.encounterAt!==missedAt) { jumpAt=g.elapsed+delay;useDouble=cue.taps===2; }
-  }
-  if(g.elapsed+1e-9>=jumpAt) {
-   if(held) {pressJump(g);releaseAt=g.elapsed+.18;} else jump(g);
-   jumpAt=Infinity;
-   if(useDouble&&secondDelay!==null) secondAt=g.elapsed+secondDelay;
-  }
-  if(g.elapsed+1e-9>=releaseAt) {releaseJump(g);releaseAt=Infinity;}
-  if(g.elapsed+1e-9>=secondAt) {releaseJump(g);assert.equal(jump(g),true);secondAt=Infinity;}
-  step(g,1/hz); events.push(...g.events);
- }
- return {g,events};
+import {createGame,jump,pressJump,releaseJump,step,MODES,ROUND_SECONDS,GROUND,CAT_X,GRAVITY,JUMP_SPEED,SECOND_JUMP_SPEED,ENCOUNTERS,COURSE,TERRAIN,terrainSegments,floorAt,nextCue,jumpCueSeconds} from '../engine.mjs';
+function playing(mode='normal',width=640){const g=createGame(mode,width);g.status='running';return g;}
+function run(g,seconds,hz=120){for(let i=0;i<Math.round(seconds*hz);i++)step(g,1/hz);}
+function route(mode='normal',width=640,hz=120,response=.15,second=.5,miss=null){
+ const g=playing(mode,width),events=[];const taps=ENCOUNTERS.flatMap(o=>o.taps&&o.encounterAt!==miss?[o.encounterAt-jumpCueSeconds(mode,o)+response,...o.taps===2&&second!==null?[o.encounterAt-.5+response+second]:[]]:[]);let i=0;
+ while(g.status==='running'){if(g.elapsed>=taps[i]-1e-9){assert(jump(g),`tap ${taps[i]} at ${g.elapsed}`);i++;}step(g,1/hz);events.push(...g.events);}return {g,events};
 }
-test('authored rhythm leaves room to land and recover, with no late surprise',()=>{
- for(let i=1;i<COURSE.length;i++) assert(COURSE[i]-COURSE[i-1]>=2);
- assert(COURSE[0]>=4); assert(ROUND_SECONDS-COURSE.at(-1)>=3);
- assert(SEGMENTS.some(s=>s.id==='recovery-one')); assert(SEGMENTS.some(s=>s.id==='recovery-two'));
-});
-test('viewport width does not change physics, obstacle positions or snack placement',()=>{
- const games=[440,720,1000].map(width=>{const g=createGame('normal',width);g.status='running';return g;});
- for(const g of games) run(g,5);
- for(const g of games.slice(1)) for(const o of games[0].obstacles) {
-  const same=g.obstacles.find(candidate=>candidate.encounterAt===o.encounterAt);
-  assert(same);assert.equal(same.x,o.x);assert.equal(same.h,o.h);
- }
- for(const g of games.slice(1)) for(const t of games[0].treats) {
-  const same=g.treats.find(candidate=>candidate.encounterAt===t.encounterAt&&candidate.offset===t.offset&&candidate.y===t.y);
-  assert(same);assert.equal(same.x,t.x);
- }
-});
-test('fixed physics yields identical state after equal simulated time',()=>{
- const games=[30,60,120].map(hz=>{const g=playing();jump(g);for(let i=0;i<hz*4;i++)step(g,1/hz);return g;});
- for(const field of ['elapsed','distance','y','vy','snacks','obstacles','treats']) {
-  assert.deepEqual(games[0][field],games[1][field],field);assert.deepEqual(games[0][field],games[2][field],field);
- }
-});
-test('protected overlapping boxes cannot drain hearts or award clean clears',()=>{
- const g=playing();g.obstacles=[0,1,2].map(id=>({id,x:CAT_X+50,w:44,h:42,hit:false}));
- step(g,1/30);assert.equal(g.hearts,2);assert.equal(g.events.filter(e=>e.type==='hit').length,1);
- run(g,1);assert.equal(g.hearts,2);assert.equal(g.cleared,0);
-});
-test('terminal and collection events are emitted once, with collection coordinates',()=>{
- const g=playing();g.treats=[{id:100,x:CAT_X+60,y:GROUND-35,taken:false}];
- step(g,1/30);assert.equal(g.events.filter(e=>e.type==='snack').length,1);
- assert.equal(g.events[0].id,100);assert.equal(g.events[0].y,GROUND-35);
- step(g,1/30);assert.equal(g.events.length,0);
- g.hearts=1;g.obstacles=[{id:101,x:CAT_X+50,w:44,h:42,hit:false}];
- step(g,1/30);assert.deepEqual(g.events.map(e=>e.type),['hit','finished']);
- assert.equal(g.event,'finished');const before=JSON.stringify(g);step(g,1/30);assert.equal(JSON.stringify(g),before);
-});
+function at(time,y=floorAt(time)??0){const g=playing();g.elapsed=time;g.distance=time*MODES[g.mode].speed;g.courseIndex=COURSE.length;g.snackIndex=99;g.y=y;g.floorHeight=floorAt(time);return g;}
+test('invalid mode is normalized, restart is clean',()=>{for(const mode of ['bad','constructor','__proto__'])assert.equal(createGame(mode).mode,'normal');const g=createGame();assert.equal(g.hearts,3);assert.equal(g.elapsed,0);assert.equal(g.grounded,true);assert.equal(g.pendingBoost,null);});
+test('ready, paused and terminal input/time are immutable',()=>{for(const status of ['ready','paused','won','finished']){const g=createGame();g.status=status;const before=JSON.stringify(g);assert.equal(jump(g),false);assert.equal(pressJump(g),false);step(g,1);assert.equal(JSON.stringify(g),before);}});
+test('single arc is 90.25 high and .95 seconds, independent of hold',()=>{assert.equal(JUMP_SPEED*2/GRAVITY,.95);for(const hz of [30,60,120])for(const hold of [0,.1,.5,2]){const g=playing();pressJump(g);let apex=0;for(let i=0;i<2*hz;i++){if(g.elapsed>=hold)releaseJump(g);step(g,1/hz);apex=Math.max(apex,g.y);}assert(apex>89&&apex<=90.251);assert.equal(g.y,0);assert.equal(g.jumpCount,0);}});
+test('second press resets velocity, third is rejected and never buffered',()=>{for(const delay of [0,.1,.45,.7,.9]){const g=playing();pressJump(g);run(g,delay);assert.equal(pressJump(g),false);releaseJump(g);assert(pressJump(g));assert.equal(g.vy,SECOND_JUMP_SPEED);releaseJump(g);assert.equal(pressJump(g),false);run(g,2);assert.equal(g.jumpCount,0);assert.equal(pressJump(g),false);assert.equal(jump(g),false);releaseJump(g);assert(jump(g));}});
+test('pause preserves queued boost and release never changes velocity',()=>{const g=playing();jump(g);run(g,.2);pressJump(g);g.status='paused';const snapshot=JSON.stringify(g);step(g,.1);assert.equal(JSON.stringify(g),snapshot);const v=g.vy;releaseJump(g);assert.equal(g.vy,v);g.status='running';step(g,1/120);assert.equal(g.events.filter(e=>e.type==='boost').length,1);step(g,1/120);assert(!g.events.some(e=>e.type==='boost'));});
+test('fixed physics and distance are identical across frame rates; long frames bounded',()=>{const gs=[30,60,120].map(hz=>{const g=playing();jump(g);run(g,2,hz);return g;});for(const key of ['elapsed','distance','y','vy','obstacles','treats'])assert.deepEqual(gs.map(g=>g[key]),[gs[0][key],gs[0][key],gs[0][key]]);const g=playing();step(g,10);assert.equal(g.distance,12);});
+test('terrain geometry contains real holes, negative floors and raised floors',()=>{assert.equal(floorAt(10.4),null);assert.equal(floorAt(15),-54);assert.equal(floorAt(28),48);for(const mode of Object.keys(MODES)){const g=playing(mode);for(const s of terrainSegments(g)){assert.equal(s.w,(s.end-s.start)*MODES[mode].speed);assert.equal(s.baseY,GROUND-s.height);}}});
+test('walking over a drop falls continuously then lands on lower floor',()=>{const g=at(13.99);step(g,1/60);assert(g.y<0&&g.y>-1);assert.equal(g.grounded,false);run(g,.5);assert.equal(g.y,-54);assert.equal(g.grounded,true);assert.equal(g.hearts,3);});
+test('a descending crossing lands on raised ground, not on air',()=>{const g=at(27.1,49);g.grounded=false;g.vy=-120;g.jumpCount=2;step(g,1/60);assert.equal(g.y,48);assert.equal(g.grounded,true);assert.equal(g.jumpCount,0);const hole=at(10.5,1);hole.grounded=false;hole.vy=-120;hole.jumpCount=2;step(hole,1/60);assert(hole.y<0);assert.equal(hole.jumpCount,2);assert.equal(hole.grounded,false);});
+test('landing just before/after the far lip respects the actual surface',()=>{const early=at(10.92,1);early.grounded=false;early.vy=-100;step(early,1/60);assert(early.y<0);assert.equal(early.grounded,false);const late=at(10.96,1);late.grounded=false;late.vy=-100;step(late,1/60);assert.equal(late.y,0);assert.equal(late.grounded,true);});
+test('rising solid wall costs a heart and emits explicit recovery, not a silent floor snap',()=>{const g=at(17.99,-54);step(g,1/60);assert.equal(g.hearts,2);assert(g.events.some(e=>e.type==='recover'&&e.reason==='wall'));assert(g.recoveryUntil>g.elapsed);run(g,1);assert.equal(g.hearts,2);assert.equal(g.y,0);});
+test('missing a hole costs one heart and safely resumes at its approaching lip',()=>{const g=at(9.99);const events=[];for(let i=0;i<240;i++){step(g,1/120);events.push(...g.events);}assert.equal(g.hearts,2);assert.equal(g.hitCount,1);assert.equal(g.y,0);assert.equal(g.grounded,true);assert.equal(events.filter(e=>e.type==='recover').length,1);assert(events.some(e=>e.reason==='fall'));assert(g.elapsed>11.9);});
+test('rescue cannot be exploited to reset midair jumps',()=>{const g=at(9.99);while(!g.recoveryUntil)step(g,1/120);assert.equal(jump(g),false);run(g,.5);assert.equal(g.jumpCount,0);assert(jump(g));assert(jump(g));assert.equal(jump(g),false);});
+test('no input fails, not endless falling; zero hearts terminal is immutable',()=>{const {g,events}=route('normal',640,60,.15,null);assert(g.hitCount>0);assert(!events.some(e=>e.type==='clear'&&e.kind==='long'));const idle=playing();run(idle,44);assert.equal(idle.status,'finished');const before=JSON.stringify(idle);step(idle,1);assert.equal(JSON.stringify(idle),before);});
+test('authored long obstacle mathematically exceeds all possible single-jump clearance',()=>{for(const mode of Object.keys(MODES)){const speed=MODES[mode].speed;for(const o of ENCOUNTERS.filter(o=>o.kind==='long')){const required=(o.duration*speed-18+30)/speed;const height=o.h-10;const usable=2*Math.sqrt(JUMP_SPEED**2-2*GRAVITY*height)/GRAVITY;assert(required>usable);}}});
+test('authored course gives visible warning and a safe landing runway',()=>{assert(COURSE[0]>=4);assert(ROUND_SECONDS-COURSE.at(-1)>=3);for(let i=1;i<COURSE.length;i++)assert(COURSE[i]-COURSE[i-1]>=2);for(const mode of Object.keys(MODES)){const speed=MODES[mode].speed;assert((720-230)/speed>=1.3);for(let i=1;i<ENCOUNTERS.length;i++){const a=ENCOUNTERS[i-1],b=ENCOUNTERS[i];assert(b.encounterAt-.5-(a.encounterAt+a.duration)>=.5);}}assert.deepEqual(ENCOUNTERS.slice(0,5).map(o=>o.kind),['crate','long','gap','drop','step']);});
+test('all courses finish cleanly: both speeds, 640/800/1200 widths, 30/60/120fps and human reaction windows',()=>{for(const mode of Object.keys(MODES))for(const width of [640,720,800,1200])for(const hz of [30,60,120])for(const response of [.08,.15,.25])for(const second of [.4,.5,.6]){const {g,events}=route(mode,width,hz,response,second);const label=`${mode}/${width}/${hz}/${response}/${second}`;assert.equal(g.status,'won',label);assert.equal(g.hearts,3,label);assert.equal(g.cleared,ENCOUNTERS.length,label);assert.equal(g.combo,5);assert.equal(g.stars,ENCOUNTERS.filter(o=>o.taps===2).length,label+' stars');assert.equal(events.filter(e=>e.type==='won').length,1);assert.equal(g.score,events.reduce((sum,e)=>sum+(e.value??0),0));}});
+test('each missed hazard is recoverable, resets combo, and costs only one heart',()=>{for(const miss of [4,7,10,18,20,23,27,37,40]){const {g,events}=route('normal',640,60,.15,.5,miss);assert.equal(g.status,'won',`${miss}`);assert.equal(g.hearts,2,`${miss}`);assert.equal(g.hitCount,1,`${miss}`);const hit=events.findIndex(e=>e.type==='hit');const clear=events.slice(hit+1).find(e=>e.type==='clear');if(clear)assert.equal(clear.combo,1);}});
+test('one contact costs only one heart; pickup is once; terminal outranks hit',()=>{const g=playing();g.obstacles=[{x:CAT_X+50,w:44,h:42,hit:false}];step(g,1/120);assert.equal(g.hearts,2);run(g,.1);assert.equal(g.hearts,2);const snack=playing();snack.treats=[{id:99,x:CAT_X+60,y:GROUND-35,taken:false}];step(snack,1/30);assert.equal(snack.snacks,1);step(snack,1/30);assert.equal(snack.snacks,1);const end=playing();end.hearts=1;end.obstacles=[{x:CAT_X+50,w:44,h:42,hit:false}];step(end,1/120);assert.equal(end.event,'finished');});
+test('next cue and visible segments are deterministic and independent of width',()=>{const games=[640,1200].map(w=>playing('normal',w));for(const g of games)run(g,3);assert.equal(nextCue(games[0]).encounterAt,4);assert.deepEqual(terrainSegments(games[0]),terrainSegments(games[1]));for(const o of games[0].obstacles){const other=games[1].obstacles.find(a=>a.encounterAt===o.encounterAt);assert.equal(o.x,other.x);assert.equal(o.w,other.w);}});
 
-function jumpApex(holdFor = 0, hz = 120) {
- const g=playing();let apex=0;const events=[];
- pressJump(g);
- for(let frame=0;frame<hz*2;frame++) {
-  if(g.elapsed>=holdFor-1e-9) releaseJump(g);
-  step(g,1/hz);apex=Math.max(apex,g.y);events.push(...g.events);
- }
- return {g,apex,events};
-}
-test('taps and holds of every duration have the same low arc, never a boost',()=>{
- for(const hz of [30,60,120]) for(const duration of [0,.04,.08,.16,.3,1,3]) {
-  const {g,apex,events}=jumpApex(duration,hz);
-  assert(apex>=89&&apex<=91,`${duration}s at ${hz}Hz: ${apex}`);
-  assert.equal(g.y,0);assert.equal(g.jumpCount,0);
-  assert.equal(events.filter(e=>e.type==='boost').length,0);
- }
-});
-test('second distinct tap works immediately, rising, at apex, falling and near landing',()=>{
- for(const delay of [0,.05,.15,.3,.45,.7,.9]) {
-  const g=playing();assert.equal(pressJump(g),true);
-  run(g,delay);const height=g.y, velocity=g.vy;
-  assert.equal(pressJump(g),false);assert.equal(g.jumpCount,1);
-  releaseJump(g);assert.equal(pressJump(g),true);
-  assert.equal(g.jumpCount,2);assert.equal(g.vy,SECOND_JUMP_SPEED);
-  assert(g.vy>=velocity);assert.equal(g.y,height);
-  releaseJump(g);assert.equal(pressJump(g),false);
-  assert.equal(g.jumpCount,2);assert.equal(g.vy,SECOND_JUMP_SPEED);
-  releaseJump(g);
-  const events=[];let apex=height;
-  for(let i=0;i<240;i++) {step(g,1/120);events.push(...g.events);apex=Math.max(apex,g.y);}
-  assert(apex>=height+89&&apex<=height+91);
-  assert(apex<=181);assert.equal(g.y,0);assert.equal(g.jumpCount,0);
-  const boosts=events.filter(e=>e.type==='boost');assert.equal(boosts.length,1);
-  assert.deepEqual(boosts[0],{type:'boost',x:CAT_X+66,y:GROUND-height-30});
- }
-});
-test('held input and rejected third presses never repeat on landing',()=>{
- const g=playing();assert.equal(pressJump(g),true);
- step(g,1/120);const before=g.vy;
- assert.equal(pressJump(g),false);assert.equal(g.vy,before);
- run(g,2);assert.equal(g.y,0);assert.equal(g.jumpCount,0);
- assert.equal(pressJump(g),false);assert.equal(jump(g),false);
- releaseJump(g);assert.equal(pressJump(g),true);
- releaseJump(g);assert.equal(pressJump(g),true);
- releaseJump(g);assert.equal(pressJump(g),false);
- run(g,2);assert.equal(g.y,0);assert.equal(g.jumpCount,0);
- assert.equal(pressJump(g),false);
- releaseJump(g);assert.equal(pressJump(g),true);assert.equal(g.jumpCount,1);
-});
-test('pause freezes a queued double jump, rejects input and releases without altering physics',()=>{
- const g=playing();pressJump(g);run(g,.1);releaseJump(g);pressJump(g);
- g.status='paused';const before=JSON.stringify(g);
- assert.equal(pressJump(g),false);assert.equal(jump(g),false);step(g,1);
- assert.equal(JSON.stringify(g),before);
- const velocity=g.vy;releaseJump(g);assert.equal(g.vy,velocity);assert.equal(g.jumpCount,2);
- g.status='running';step(g,1/120);assert.equal(g.events.filter(e=>e.type==='boost').length,1);
- step(g,1/120);assert.equal(g.events.filter(e=>e.type==='boost').length,0);
- run(g,2);assert.equal(g.y,0);assert.equal(g.jumpCount,0);
- const fresh=createGame();assert.equal(fresh.jumpHeld,false);assert.equal(fresh.jumpCount,0);assert.equal(fresh.pendingBoost,null);
-});
-test('double jump physics is identical across modes, widths and frame rates',()=>{
- let reference;
- for(const mode of Object.keys(MODES)) for(const width of [440,720,1000]) for(const hz of [30,60,120]) {
-  const g=createGame(mode,width);g.status='running';jump(g);
-  for(let i=0;i<hz/2;i++)step(g,1/hz);
-  jump(g);
-  for(let i=0;i<hz/2;i++)step(g,1/hz);
-  const actual=[g.y,g.vy,g.jumpCount];reference??=actual;assert.deepEqual(actual,reference);
- }
-});
-test('boost frame respects higher-priority hit feedback',()=>{
- const g=playing();jump(g);run(g,.1);jump(g);
- g.obstacles=[{id:999,x:CAT_X+50,w:44,h:200,hit:false}];
- step(g,1/120);
- assert(g.events.some(e=>e.type==='boost'));assert(g.events.some(e=>e.type==='hit'));
- assert.equal(g.event,'hit');
-});
+test('walk-off consumes ground jump and allows only one air tap',()=>{const g=at(9.99);step(g,1/30);assert.equal(g.grounded,false);assert.equal(g.jumpCount,1);assert(jump(g));assert.equal(jump(g),false);});
+test('floating-point accumulated edge crossing cannot pass through a solid step',()=>{const g=at(16.8,-54);const events=[];run(g,1.2);for(let i=0;i<8;i++){step(g,1/120);events.push(...g.events);}assert.equal(g.hearts,2);assert(g.recoveryUntil>18);assert.equal(g.y,0);});
 
-test('ready, paused and terminal input cannot change state',()=>{
- for(const status of ['ready','paused','won','finished']) {
-  const g=playing();g.status=status;const before=JSON.stringify(g);
-  assert.equal(pressJump(g),false);assert.equal(jump(g),false);
-  assert.equal(JSON.stringify(g),before);
- }
-});
-test('releasing a press does not change its trajectory or consume another jump',()=>{
- const held=playing(),tapped=playing();pressJump(held);jump(tapped);
- assert.equal(held.vy,JUMP_SPEED);
- for(let i=0;i<240;i++) {
-  step(held,1/120);step(tapped,1/120);
-  for(const field of ['y','vy','jumpCount']) assert.equal(held[field],tapped[field]);
- }
-});
-
-test('default pace uses eighteen authored encounters with recovery gaps',()=>{
- assert.equal(createGame().mode,'normal');assert.equal(MODES.normal.speed,360);
- assert.equal(MODES.gentle.speed,240);assert.equal(COURSE.length,18);assert.equal(COURSE[0],4);
- const gaps=COURSE.slice(1).map((time,i)=>time-COURSE[i]);
- assert.equal(gaps.filter(gap=>gap>=3).length,2);
- assert(gaps.every(gap=>gap>=2));
-});
-
-// Human-like reactions are measured after the visible, obstacle-specific cue.
-// The double tap is a distinct release/press 0.22–0.34 seconds later, not a hold.
-test('authored route finishes cleanly at all widths and frame rates with response variation',()=>{
- for(const mode of Object.keys(MODES)) for(const width of [440,720,1000])
- for(const hz of [30,60,120]) for(const delay of [.08,.15,.23,.3]) for(const secondDelay of [.22,.28,.34]) {
-  const {g,events}=cueRun(mode,width,hz,delay,secondDelay);
-  const label=`${mode} ${width}px ${hz}Hz response ${delay}s second ${secondDelay}s`;
-  assert.equal(g.status,'won',label); assert.equal(g.hearts,3,label);
-  assert.equal(g.cleared,COURSE.length,label); assert.equal(g.streak,COURSE.length,label);
-  assert.equal(g.combo,5,label); assert(g.score>800,label); assert(g.stars>0,label);
-  assert.equal(events.filter(e=>e.type==='won').length,1,label);
-  for(const type of ['snack','clear']) {
-   const matching=events.filter(e=>e.type===type);
-   assert.equal(new Set(matching.map(e=>e.id)).size,matching.length,label);
-   assert(matching.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)&&e.value>0),label);
-  }
-  assert.equal(g.score,events.reduce((sum,e)=>sum+(e.value||0),0),label);
- }
-});
-test('a held first press still needs a distinct second press on stacks',()=>{
- for(const hz of [30,60,120]) {
-  const {g}=cueRun('normal',440,hz,.15,.28,null,true);
-  assert.equal(g.status,'won');assert.equal(g.hearts,3);
- }
-});
-test('low-only play cannot clear tall stacks',()=>{
- const {g,events}=cueRun('normal',440,60,.15,null);
- assert(g.hitCount>0);assert(g.cleared<COURSE.length);
- assert(!events.some(e=>e.type==='clear'&&e.kind==='stack'));
- assert.equal(g.stars,0);
-});
-test('one deliberate missed obstacle resets combo and leaves a recoverable course',()=>{
- for(const missedAt of [4,12,23.5,39]) {
-  const {g,events}=cueRun('normal',440,60,.15,.28,missedAt);
-  assert.equal(g.status,'won');assert.equal(g.hearts,2);assert.equal(g.hitCount,1);
-  assert.equal(g.cleared,COURSE.length-1);
-  const hitIndex=events.findIndex(e=>e.type==='hit');
-  const nextClear=events.slice(hitIndex+1).find(e=>e.type==='clear');
-  assert.equal(nextClear.combo,1);assert.equal(nextClear.value,20);
- }
-});
-test('three legible obstacle shapes teach low, wide and double jumps in order',()=>{
- assert.deepEqual(ENCOUNTERS.slice(0,5).map(o=>o.kind),['crate','crate','crate','planter','stack']);
- assert.equal(new Set(ENCOUNTERS.map(o=>o.kind)).size,3);
- assert(ENCOUNTERS.filter(o=>o.kind==='stack').every(o=>o.h>100&&o.taps===2));
- assert(ENCOUNTERS.every(o=>o.hint&&o.w>0&&o.cueLead>0));
- for(const o of ENCOUNTERS) assert(CAT_X+70+MODES.normal.speed*jumpCueSeconds('normal',o)<440);
-});
-test('high golden stars reward a double jump, fish and clear rewards update score',()=>{
- const {g,events}=cueRun('normal',440,60,.15,.28);
- const stars=events.filter(e=>e.type==='snack'&&e.kind==='star');
- assert.equal(stars.length,ENCOUNTERS.filter(o=>o.taps===2).length);
- assert.equal(g.stars,stars.length);assert(stars.every(e=>e.value===50));
- assert(events.some(e=>e.type==='snack'&&e.kind==='fish'&&e.value===10));
- assert(events.some(e=>e.type==='clear'&&e.combo===5&&e.value===40));
-});
+test('low-only jumps cannot collect double-jump stars',()=>{for(const mode of Object.keys(MODES)){const {g}=route(mode,720,60,.15,null);assert.equal(g.stars,0);}});
+test('drop rewards and rest snacks follow the actual lower floor',()=>{const g=at(13);g.courseIndex=3;g.snackIndex=3;step(g,1/120);const drops=g.treats.filter(t=>t.encounterAt===14);assert.equal(drops.length,3);for(const t of drops){assert(t.offset/MODES.normal.speed>=.5);assert.equal(t.y,GROUND+54-35);}for(const time of [14.6,15.2])assert.equal(g.treats.find(t=>t.encounterAt===time)?.y,GROUND+54-35);});

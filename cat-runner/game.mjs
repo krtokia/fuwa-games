@@ -1,4 +1,5 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds } from './engine.mjs';
+import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue } from './engine.mjs';
+import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 
 // Phaser owns rendering, scene timing, particles and tweens. Native input supplies tap edges.
@@ -90,7 +91,7 @@ function finish() {
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
-  const won = game.status === 'won', key = `score_v5_${game.mode}`;
+  const won = game.status === 'won', key = `score_v6_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
   $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
@@ -122,17 +123,23 @@ function updateHUD() {
     $('segment-label').textContent=game.segment.name;
     if(lastSegment!==game.segment.id) {if(lastSegment && game.status==='running')toast(game.segment.name,2);lastSegment=game.segment.id;}
   }
-  const airborne=game.status==='running' && game.jumpCount>0;
+  const airborne=game.status==='running' && !game.grounded;
   const canDouble=airborne && game.jumpCount===1;
   $('jump-label').textContent=canDouble?'한 번 더':'점프';
   $('jump').classList.toggle('can-double',canDouble);
   $('jump-state').textContent=canDouble?'공중에서 한 번 더 가능':airborne?'착지하면 다시 점프해요':'한 번 톡 = 낮은 점프';
   if(game.status!=='running') return;
-  const next=game.obstacles.find(o=>!o.hit&&!o.cleared&&o.x>CAT_X+70);
+  $('jump').disabled=game.elapsed<game.recoveryUntil;
+  if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
+  const next=nextCue(game);
+  const longFlight=game.obstacles.find(o=>o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-.8&&game.elapsed<=o.encounterAt+o.duration);
+  const jumpAge=game.jumpStartedAt===null?0:game.elapsed-game.jumpStartedAt;
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
   let text='';
-  if(game.elapsed<noticeUntil)text='괜찮아요! 계속 가요';
-  else if(away<jumpCueSeconds(game.mode,next))text=next.taps===2?(game.jumpCount===1?'지금 한 번 더! ↑↑':'두 번 톡! ↑↑'):'지금 톡! ↑';
+  if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
+  else if(game.elapsed<noticeUntil)text='다시 달려요!';
+  else if(longFlight&&game.jumpCount===1&&jumpAge>=.4&&jumpAge<=.85)text='지금 한 번 더 톡! ↑↑';
+  else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 공중에서 한 번 더':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
@@ -141,6 +148,7 @@ function updateHUD() {
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
   if(event.type==='land') scene.landEffect();
+  if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
   if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); audio.play('boost'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
   if(event.type==='hit') {noticeUntil=game.elapsed+1.4;scene.hitEffect();audio.play('hit');announce(`장애물에 닿았어요. 기운 ${game.hearts}개가 남았어요.`);}
@@ -175,7 +183,7 @@ document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code===
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
 $('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'){audio.resume();audio.play('collect');}});
 document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
-document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 산책 · 기운 3개 · 점프 버튼 하나`;
+document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 코스 · 기운 3개 · 점프 버튼 하나`;
 
 function bootPhaser() {
   const Phaser = window.Phaser;
@@ -203,8 +211,8 @@ function bootPhaser() {
       this.moonGlow = this.add.circle(this.scale.width * .8, 60, 40, 0xf4d99e, .06).setDepth(-11);
       this.moon = this.add.circle(this.scale.width * .8, 60, 19, 0xffeac2, .86).setDepth(-10);
       this.moonShade = this.add.circle(this.scale.width * .8 - 7, 54, 18, 0x143b4b).setDepth(-10);
-      this.fence = this.add.tileSprite(0, GROUND - 32, this.scale.width, 32, 'fence').setOrigin(0).setDepth(-5);
-      this.road = this.add.tileSprite(0, GROUND, this.scale.width, 62, 'road').setOrigin(0).setDepth(-3);
+      this.terrain = this.add.graphics().setDepth(-3);
+      this.rescue = this.add.ellipse(CAT_X+66,GROUND-48,180,118).setStrokeStyle(4,0xb6f0df,.9).setVisible(false).setDepth(12);
       this.lamps = Array.from({length: 5}, () => this.add.image(0, GROUND - 23, 'lamp').setOrigin(.5, 1).setDepth(-6));
       this.fireflies = Array.from({length: 15}, (_, i) => this.add.circle((i * 137 + 40) % this.scale.width, 90 + (i * 43) % 170, i % 3 ? 1.5 : 2.2, 0xffdfa0, .25).setDepth(-4));
       this.shadow = this.add.ellipse(CAT_X + 65, GROUND + 5, 115, 13, 0x08252b, .36).setDepth(1);
@@ -214,10 +222,12 @@ function bootPhaser() {
       this.finishGate.add(this.add.image(0, 0, 'garden-gate').setOrigin(.5, 1));
       this.finishGate.add(this.add.text(0, -125, '달빛 정원', {fontFamily: 'sans-serif', fontSize: '18px', fontStyle: 'bold', color: '#ffedc7'}).setOrigin(.5));
       const resize = size => {
-        const backgroundWidth = Math.max(1200, size.width + 220);
-        this.backdrop.setDisplaySize(backgroundWidth, backgroundWidth / 3).setY(400 - backgroundWidth / 3);
-        this.fence.setSize(size.width, 32); this.road.setSize(size.width, 62);
+        this.cameraTop=GROUND-size.height*.82;
+        this.cameras.main.setScroll(0,this.cameraTop);
+        const backgroundWidth = Math.max(size.height*3, size.width + 220);
+        this.backdrop.setDisplaySize(backgroundWidth, backgroundWidth / 3).setY(this.cameraTop+size.height-backgroundWidth/3);
         this.moon.x = this.moonGlow.x = size.width * .8; this.moonShade.x = size.width * .8 - 7;
+        this.moon.y=this.moonGlow.y=this.cameraTop+80; this.moonShade.y=this.cameraTop+74;
         game.width = size.width;
       };
       this.scale.on('resize', resize); resize(this.scale);
@@ -287,8 +297,8 @@ function bootPhaser() {
         this.tweens.add({targets: dot, x: x - 22 + i * 7, y: y - 14 - i % 3 * 7, alpha: 0, scale: .2, duration: 340 + i * 15, onComplete: () => this.removeEffect(dot)}); }
     }
     removeEffect(item) { item.destroy(); this.fx = this.fx.filter(o => o !== item); }
-    jumpEffect() { this.puff(CAT_X + 66, GROUND - 2, 6); }
-    landEffect() { this.landAt = visualClock; this.puff(CAT_X + 66, GROUND - 1, 6, 0xa5b8aa); }
+    jumpEffect() { this.puff(CAT_X + 66, GROUND - game.y - 2, 6); }
+    landEffect() { this.landAt = visualClock; this.puff(CAT_X + 66, GROUND - game.y - 1, 6, 0xa5b8aa); }
     collectEffect(x, y, value = 10, kind = 'fish') {
       this.puff(x, y, kind === 'star' ? 10 : 5, kind === 'star' ? 0xffe6a1 : 0xffdf8d);
       const label = this.add.text(x, y - 10, `+${value}`, {fontFamily: 'sans-serif', fontSize: kind === 'star' ? '23px' : '17px', fontStyle: 'bold', color: '#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
@@ -296,10 +306,58 @@ function bootPhaser() {
     }
     clearEffect() { if (game.streak % 3 === 0) this.puff(CAT_X + 80, GROUND - game.y - 70, 8, 0xe5f4b9); }
     hitEffect() { if (!reducedMotion.matches) this.cameras.main.shake(100, .002); this.puff(CAT_X + 96, GROUND - game.y - 24, 7, 0xf7bd8b); }
-    finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, 150, 14, 0xffd88f); this.puff(this.scale.width * .75, 150, 14, 0xbfd9a8); } }
+    finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, this.cameraTop+150, 14, 0xffd88f); this.puff(this.scale.width * .75, this.cameraTop+150, 14, 0xbfd9a8); } }
+    drawTerrain() {
+      const g=this.terrain, bottom=this.cameraTop+this.scale.height+100;
+      g.clear();
+      for(const hole of game.obstacles.filter(o=>o.kind==='gap')){g.fillStyle(0x071b28,.94);g.fillRect(hole.x,(hole.baseY??GROUND)+4,hole.w,bottom-(hole.baseY??GROUND));}
+      // No road texture spans a hole. Exposed side faces make every lip explicit.
+      for(const segment of terrainSegments(game)) {
+        const left=Math.max(-50,segment.x),right=Math.min(this.scale.width+50,segment.x+segment.w);
+        if(right<=left)continue;
+        const top=segment.baseY;
+        g.fillStyle(0x244b52);g.fillRect(left,top,right-left,bottom-top);
+        g.fillStyle(0x527b78);g.fillRect(left,top,right-left,18);
+        g.fillStyle(0xd2c398);g.fillRect(left,top,right-left,4);
+        g.fillStyle(0x173840);g.fillRect(left,top+18,right-left,4);
+        g.lineStyle(1,0x76928a,.4);
+        const gridOffset=((game.distance%80)+80)%80;
+        for(let x=Math.floor((left+gridOffset)/80)*80-gridOffset;x<right;x+=80){
+          g.lineBetween(Math.max(left,x),top+37,Math.min(right,x+78),top+37);
+          if(x>=left)g.lineBetween(x,top+22,x+8,top+36);
+        }
+        for(const edge of [segment.x,segment.x+segment.w])if(edge>=-8&&edge<=this.scale.width+8){
+          g.fillStyle(0x112f38);g.fillRect(edge-4,top+4,8,bottom-top);
+          g.fillStyle(0xf6d286);g.fillRect(edge-7,top,14,5);
+        }
+      }
+    }
+    hazardSprite(box) {
+      const node=this.add.container(0,0).setDepth(5),g=this.add.graphics();node.add(g);
+      if(box.kind==='crate') {
+        const sx=box.w/38,sy=box.h/30;const image=this.add.image(-8*sx,10*sy,'crate').setOrigin(0,1);image.setScale(sx,sy);node.add(image);
+      } else if(box.kind==='long') {
+        // A continuous planter rail, with the exact collision width, not separate boxes.
+        g.fillStyle(0x9c6650);g.fillRoundedRect(0,-box.h,box.w,box.h,4);
+        g.lineStyle(2,0x392e2b);g.strokeRoundedRect(0,-box.h,box.w,box.h,4);
+        g.fillStyle(0xd2a07b);g.fillRect(0,-box.h,box.w,6);
+        g.lineStyle(2,0x674e42);
+        for(let x=16;x<box.w;x+=32)g.lineBetween(x,-box.h+8,x,0);
+        for(let x=12;x<box.w;x+=23){g.fillStyle(x%2?0x96b28a:0x73936b);g.fillEllipse(x,-box.h+2,20,8);}
+        g.lineStyle(3,0xffe3a0);for(const x of [box.w*.45,box.w*.55]){g.lineBetween(x-6,-box.h-8,x,-box.h-14);g.lineBetween(x,-box.h-14,x+6,-box.h-8);}
+      } else {
+        const color=box.kind==='gap'?0xefb47b:0xb8d2a0;
+        const edges=box.kind==='gap'?[0,box.w]:[0];
+        for(const x of edges){g.lineStyle(3,color);g.lineBetween(x,-26,x,-4);g.fillStyle(color);g.fillTriangle(x,-27,x+15,-23,x,-17);}
+        if(box.kind==='step') {g.lineStyle(3,color);g.lineBetween(12,-14,22,-24);g.lineBetween(22,-24,32,-14);}
+        if(box.kind==='drop') {g.lineStyle(3,color);g.lineBetween(12,-24,22,-14);g.lineBetween(22,-14,32,-24);}
+      }
+      return node;
+    }
     syncObjects() {
+      this.drawTerrain();
       const boxes = new Set(game.obstacles.map(o => o.id)); for (const [id, sprite] of this.boxes) if (!boxes.has(id)) { sprite.destroy(); this.boxes.delete(id); }
-      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.add.image(0, 0, box.kind || 'crate').setOrigin(0, 1).setDepth(5); this.boxes.set(box.id, sprite); } sprite.setPosition(box.x - 8, GROUND + 10).setAlpha(box.hit ? .5 : 1); }
+      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } sprite.setPosition(box.x,box.baseY??GROUND).setAlpha(box.hit ? .5 : 1); }
       const treats = new Set(game.treats.map(t => t.id)); for (const [id, sprite] of this.treats) if (!treats.has(id)) { sprite.destroy(); this.treats.delete(id); }
       for (const treat of game.treats) { let sprite = this.treats.get(treat.id); if (!sprite) { sprite = this.add.image(treat.x, treat.y, treat.kind || 'fish').setDepth(6); this.treats.set(treat.id, sprite); } const pulse = reducedMotion.matches ? 1 : 1 + Math.sin(visualClock * 5 + treat.id) * .05; sprite.setPosition(treat.x, treat.y).setScale(pulse); if (treat.kind === 'star') sprite.setAngle(reducedMotion.matches ? 0 : Math.sin(visualClock * 3) * 9); }
     }
@@ -312,29 +370,36 @@ function bootPhaser() {
       }
       const running = game.status === 'running', activePose = game.status === 'running' || game.status === 'paused';
       if (activePose) {
-        const pose = game.y > 0 ? (game.vy > 0 ? 6 : 7) : Math.floor(visualClock * 13 * MODES[game.mode].speed / 360) % 6;
+        const pose = !game.grounded ? (game.vy > 0 ? 6 : 7) : Math.floor(visualClock * 13 * MODES[game.mode].speed / 360) % 6;
         this.cat.setTexture('motion', `pose-${pose}`).setOrigin(.5, 295 / 310).setScale(.42).setAngle(0);
       } else this.cat.setTexture('fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setAngle(0);
       this.cat.setPosition(CAT_X + 66, GROUND - game.y + 1);
-      this.cat.setAlpha(game.invincible > 0 ? .72 : 1);
-      this.shadow.setScale(Math.max(.42, 1 - game.y / 400), 1).setAlpha(.34 - game.y / 1000);
+      const rescuing=game.elapsed<game.recoveryUntil;
+      this.cat.setAlpha(rescuing?.45:game.invincible>0?.72:1);
+      this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing);
+      const heightAboveFloor=game.floorHeight===null?200:Math.max(0,game.y-game.floorHeight);
+      this.shadow.setPosition(CAT_X+65,GROUND-(game.floorHeight??0)+5).setVisible(game.floorHeight!==null&&!rescuing).setScale(Math.max(.42,1-heightAboveFloor/400),1).setAlpha(Math.max(0,.34-heightAboveFloor/1000));
       this.ring.setPosition(CAT_X + 70, GROUND - game.y - 47).setVisible(game.invincible > 0);
       const distance = reducedMotion.matches ? 0 : game.distance;
-      this.backdrop.x = -Math.min(200, distance * .012); this.fence.tilePositionX = distance * .4; this.road.tilePositionX = distance;
+      this.backdrop.x = -Math.min(200, distance * .012);
       for (let i = 0; i < this.lamps.length; i++) this.lamps[i].x = ((i * 340 + 240 - distance * .32) % 1700 + 1700) % 1700 - 100;
       for (let i = 0; i < this.fireflies.length; i++) { const dot = this.fireflies[i]; dot.x = ((i * 137 + 40 - distance * .08) % (this.scale.width + 40) + this.scale.width + 40) % (this.scale.width + 40); dot.y = 90 + (i * 43) % 170 + (reducedMotion.matches ? 0 : Math.sin(visualClock * .8 + i) * 7); dot.setAlpha(.18 + (reducedMotion.matches ? .1 : Math.sin(visualClock * 1.5 + i) * .12 + .12)); }
       this.syncObjects();
-      if (running && game.y === 0 && visualClock - this.lastFootstep > .16) { this.lastFootstep = visualClock; this.puff(CAT_X + 42, GROUND, 2, 0xc0c1a8); }
+      if (running && game.grounded && !rescuing && visualClock - this.lastFootstep > .16) { this.lastFootstep = visualClock; this.puff(CAT_X + 42, GROUND-game.y, 2, 0xc0c1a8); }
       const gateX = CAT_X + 160 + (ROUND_SECONDS - game.elapsed) * MODES[game.mode].speed;
       this.finishGate.setPosition(gateX, GROUND).setVisible(gateX < this.scale.width + 140);
     }
   }
-  const width = Math.max(440, Math.round($('scene').clientWidth));
-  renderer = new Phaser.Game({type: Phaser.AUTO, parent: 'game-canvas', width, height: 400, transparent: true, antialias: true, roundPixels: false,
+  const host=$('scene');
+  let view=worldViewport(host.clientWidth,host.clientHeight);
+  renderer = new Phaser.Game({type: Phaser.AUTO, parent: 'game-canvas', width:view.width, height:view.height, transparent: true, antialias: true, roundPixels: false,
     scale: {mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_HORIZONTALLY}, scene: RunnerScene,
     input: {activePointers: 2}, audio: {noAudio: true}, fps: {target: 60, forceSetTimeOut: false}, banner: false});
-  let oldWidth = width;
-  new ResizeObserver(() => { const next = Math.max(440, Math.round($('scene').clientWidth)); if (next !== oldWidth) { pause(); oldWidth = next; renderer.scale.setGameSize(next, 400); } renderer.scale.refresh(); }).observe($('scene'));
+  new ResizeObserver(() => {
+    const next=worldViewport(host.clientWidth,host.clientHeight);
+    if(next.width!==view.width||next.height!==view.height){pause();view=next;renderer.scale.setGameSize(view.width,view.height);}
+    renderer.scale.refresh();
+  }).observe(host);
 }
 if (window.Phaser) bootPhaser(); else { $('start').textContent = '게임을 불러오지 못했어요'; announce('게임 파일을 불러오지 못했어요. 새로고침해 주세요.'); }
 updateHUD();

@@ -10,6 +10,7 @@ output = Path(sys.argv[1] if len(sys.argv) > 1 else '/tmp/fuwa-runner.html')
 html = (root / 'index.html').read_text()
 css = (root / 'style.css').read_text()
 engine = (root / 'engine.mjs').read_text().replace('export ', '')
+viewport = (root / 'viewport.mjs').read_text().replace('export ', '')
 audio = (root / 'audio.mjs').read_text().replace('export ', '')
 game = re.sub(r'^import .*;\n', '', (root / 'game.mjs').read_text(), flags=re.M)
 for asset in ['fuwa-generated.png', 'fuwa-motion-v1.png', 'moonlit-alley-v1.png']:
@@ -22,7 +23,7 @@ runtime = (root / 'vendor' / 'phaser-3.90.0.min.js').read_text().replace('</scri
 html = html.replace('<script src="./vendor/phaser-3.90.0.min.js"></script>', '<script>' + runtime + '</script>')
 html = html.replace('href="../"', 'href="https://game.fuwa.dad/"')
 head, tail = html.rsplit('</body>', 1)
-html = head + '<script type="module">\n' + audio + '\n' + engine + '\n' + game + '\n</script>\n</body>' + tail
+html = head + '<script type="module">\n' + viewport + '\n' + audio + '\n' + engine + '\n' + game + '\n</script>\n</body>' + tail
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(html)
 print(output)
