@@ -1,6 +1,7 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS } from './engine.mjs';
+import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
 import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
+import { runnerPose, actionFloorLift } from './animation.mjs';
 
 // Phaser owns rendering, scene timing, particles and tweens. Native input supplies tap edges.
 // The deterministic rule model stays separate so the course is testable without a GPU.
@@ -45,6 +46,7 @@ function doJump() {
 }
 function jumpFeedback() {
   if (game.jumpCount === 1) { scene.jumpEffect(); audio.play('jump'); }
+  else if (game.jumpCount === 2) { scene.boostEffect(); audio.play('boost'); }
   updateHUD();
 }
 function beginJump(source) {
@@ -96,7 +98,7 @@ function finish() {
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
-  const won = game.status === 'won', key = `score_v7_${game.mode}`;
+  const won = game.status === 'won', key = `score_v9_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
   $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
@@ -149,15 +151,15 @@ function updateHUD() {
   if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
   const next=nextCue(game);
   const longFlight=game.obstacles.find(o=>o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
-  const jumpAge=game.jumpStartedAt===null?0:game.elapsed-game.jumpStartedAt;
-  const secondCue=longFlight?.kind==='high'?.30:.40;
+  const jumpAge=game.jumpStartedAt===null?Infinity:game.elapsed-game.jumpStartedAt;
+  const secondCue=secondJumpCueSeconds(game.mode,longFlight);
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
   let text='';
   if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
   else if(game.elapsed<noticeUntil)text='하악! 다시 달려요!';
   else if(!game.grounded&&game.jumpCount>=2)text='사뿐히 착지해요';
   else if(longFlight&&game.jumpCount===1&&jumpAge<secondCue)text='조금 더 날아가요…';
-  else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue&&jumpAge<=.85)text='지금 한 번 더 톡! ↑↑';
+  else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue)text='지금 한 번 더 톡! ↑↑';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
@@ -166,9 +168,8 @@ function updateHUD() {
 }
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
-  if(event.type==='land') scene.landEffect();
+  if(event.type==='land') scene.landEffect(event.impactSpeed);
   if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.hearts>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
-  if(event.type==='boost') { scene.puff(event.x,event.y+26,8,0xffe8b1); audio.play('boost'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
   if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit');audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} 기운 ${game.hearts}개가 남았어요.`);}
 }
@@ -207,17 +208,18 @@ document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 코스 · 
 function bootPhaser() {
   const Phaser = window.Phaser;
   class RunnerScene extends Phaser.Scene {
-    constructor() { super('Runner'); this.boxes = new Map(); this.treats = new Map(); this.fx = []; this.lastFootstep = 0; this.landAt = -1; this.reactionFootY = GROUND + 1; }
+    constructor() { super('Runner'); this.boxes = new Map(); this.treats = new Map(); this.fx = []; this.lastFootstep = 0; this.landAt = -1; this.landImpact = 0; this.reactionFootY = GROUND + 1; }
     preload() {
       this.load.image('fuwa', './assets/fuwa-generated.png');
       this.load.image('motion', './assets/fuwa-motion-v1.png');
+      this.load.image('jump-land', './assets/fuwa-jump-land-v1.png');
       this.load.image('hiss', './assets/fuwa-hiss-front-v1.png');
       this.load.image('alley', './assets/moonlit-alley-v1.png');
       this.load.on('loaderror', () => { loaded = false; $('start').textContent = '그림을 불러오지 못했어요'; announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.'); });
     }
     create() {
       scene = this;
-      if (!['fuwa', 'motion', 'hiss', 'alley'].every(key => this.textures.exists(key))) return;
+      if (!['fuwa', 'motion', 'jump-land', 'hiss', 'alley'].every(key => this.textures.exists(key))) return;
       this.textures.get('fuwa').add('trimmed', 0, 51, 96, 1449, 810);
       this.textures.get('hiss').add('trimmed', 0, 0, 150, 1170, 1000);
       const atlas = this.textures.get('motion');
@@ -227,6 +229,8 @@ function bootPhaser() {
         const x = Math.round((i % 4) * 443.5), next = Math.round((i % 4 + 1) * 443.5);
         atlas.add(`pose-${i}`, 0, x, Math.round(Math.floor(i / 4) * 443.5) + 65, next - x, 310);
       }
+      const actionAtlas=this.textures.get('jump-land');
+      for(let i=0;i<4;i++)actionAtlas.add(`action-${i}`,0,(i%2)*627,Math.floor(i/2)*627+105,627,445);
       this.makeTextures();
       this.backdrop = this.add.image(0, 0, 'alley').setOrigin(0).setDepth(-12);
       this.moonGlow = this.add.circle(this.scale.width * .8, 60, 40, 0xf4d99e, .06).setDepth(-11);
@@ -239,6 +243,7 @@ function bootPhaser() {
       this.shadow = this.add.ellipse(CAT_X + 65, GROUND + 5, 115, 13, 0x08252b, .36).setDepth(1);
       this.cat = this.add.image(CAT_X + 66, GROUND + 2, 'fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setDepth(10);
       this.hissLabel = this.add.text(CAT_X+66,GROUND-130,'하악!',{fontFamily:'sans-serif',fontSize:'28px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16).setVisible(false);
+      this.boostRing=this.add.ellipse(CAT_X+66,GROUND+8,78,24).setStrokeStyle(3,0xffdfa0,.9).setVisible(false).setDepth(9);
       this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
       this.finishGate = this.add.container(0, GROUND).setDepth(4);
       this.finishGate.add(this.add.image(0, 0, 'garden-gate').setOrigin(.5, 1));
@@ -310,8 +315,8 @@ function bootPhaser() {
     resetRun() {
       this.tweens.killAll(); for (const item of this.fx) item.destroy(); this.fx = [];
       for (const item of this.boxes.values()) item.destroy(); for (const item of this.treats.values()) item.destroy(); this.boxes.clear(); this.treats.clear();
-      this.lastFootstep = 0; this.landAt = -1; this.reactionFootY = GROUND + 1; this.finishGate?.setVisible(false);
-      this.cat?.setAngle(0).setAlpha(1).clearTint(); this.hissLabel?.setVisible(false);
+      this.lastFootstep = 0; this.landAt = -1; this.landImpact = 0; this.reactionFootY = GROUND + 1; this.finishGate?.setVisible(false);
+      this.cat?.setAngle(0).setAlpha(1).clearTint(); this.hissLabel?.setVisible(false); this.boostRing?.setVisible(false);
     }
     puff(x, y, count = 4, color = 0xf6e4b8) {
       if (reducedMotion.matches) return;
@@ -320,7 +325,11 @@ function bootPhaser() {
     }
     removeEffect(item) { item.destroy(); this.fx = this.fx.filter(o => o !== item); }
     jumpEffect() { this.puff(CAT_X + 66, GROUND - game.y - 2, 6); }
-    landEffect() { this.landAt = visualClock; this.puff(CAT_X + 66, GROUND - game.y - 1, 6, 0xa5b8aa); }
+    boostEffect() { this.puff(CAT_X+66,GROUND-game.y+10,9,0xffdfa0); }
+    landEffect(impactSpeed=0) {
+      this.landAt=visualClock;this.landImpact=impactSpeed;
+      this.puff(CAT_X+66,GROUND-game.y-1,6+Math.min(4,Math.floor(impactSpeed/180)),0xa5b8aa);
+    }
     collectEffect(x, y, value = 10, kind = 'fish') {
       this.puff(x, y, kind === 'star' ? 10 : 5, kind === 'star' ? 0xffe6a1 : 0xffdf8d);
       const label = this.add.text(x, y - 10, `+${value}`, {fontFamily: 'sans-serif', fontSize: kind === 'star' ? '23px' : '17px', fontStyle: 'bold', color: '#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
@@ -438,18 +447,24 @@ function bootPhaser() {
       const hissing=game.reactionRemaining>0;
       const running=game.status==='running'&&!hissing, activePose=game.status==='running'||game.status==='paused';
       const hissAge=game.reactionElapsed;
+      let poseLift=0;
       if(hissing) {
         // A new front-facing pose with a brief procedural settle. This is a
         // pose change, not a falsely claimed frame-by-frame turning animation.
         const settle=reducedMotion.matches?1:1+.035*Math.sin(Math.PI*Math.min(1,hissAge/.18));
         this.cat.setTexture('hiss','trimmed').setOrigin(.5,.974).setDisplaySize(124.02*settle,106/settle).setAngle(0);
       } else if(activePose) {
-        const pose=!game.grounded?(game.vy>0?6:7):Math.floor(visualClock*13*MODES[game.mode].speed/360)%6;
-        this.cat.setTexture('motion',`pose-${pose}`).setOrigin(.5,295/310).setScale(.42).setAngle(0);
+        const pose=runnerPose(game,visualClock,{landAt:this.landAt,landImpact:this.landImpact,reducedMotion:reducedMotion.matches});
+        poseLift=actionFloorLift(pose,game);
+        if(pose.texture==='jump-land')this.cat.setTexture('jump-land',`action-${pose.frame}`).setOrigin(.5,351/445).setScale(.32*pose.stretchX,.32*pose.stretchY).setAngle(pose.angle);
+        else this.cat.setTexture('motion',`pose-${pose.frame}`).setOrigin(.5,295/310).setScale(.42*pose.stretchX,.42*pose.stretchY).setAngle(pose.angle);
       } else this.cat.setTexture('fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setAngle(0);
-      const catFootY=hissing?this.reactionFootY:GROUND-game.y+1;
+      const catFootY=hissing?this.reactionFootY:GROUND-game.y+1-poseLift;
       this.cat.setPosition(CAT_X+66,catFootY);
       this.hissLabel.setPosition(CAT_X+66,catFootY-135).setVisible(hissing).setAlpha(hissing?Math.min(1,game.reactionRemaining/.12):0);
+      const boostAge=game.lastBoostAt===null?Infinity:game.elapsed-game.lastBoostAt;
+      const boostVisible=running&&!reducedMotion.matches&&game.jumpCount===2&&boostAge>=0&&boostAge<.2;
+      this.boostRing.setPosition(CAT_X+66,catFootY+10).setVisible(boostVisible).setScale(.5+Math.min(.2,boostAge)*3).setAlpha(boostVisible?1-boostAge/.2:0);
       const rescuing=game.elapsed<game.recoveryUntil;
       this.cat.setAlpha(hissing?1:rescuing?.45:game.invincible>0?.72:1);
       this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing&&!hissing);

@@ -4,35 +4,52 @@ export const MODES = Object.freeze({
   normal: { label: '달리기', speed: 360, gap: 2 },
 });
 export function jumpCueSeconds(mode, obstacle) { return obstacle?.cueLead ?? .5; }
+// Seconds after the accepted first press. The HUD and route tests share this.
+export function secondJumpCueSeconds(mode, obstacle) { return obstacle?.secondCue ?? .18; }
 export const ROUND_SECONDS = 44;
 export const GROUND = 338;
 export const CAT_X = 76;
-export const GRAVITY = 800;
-export const JUMP_SPEED = 380;
-// A second tap resets upward speed, never adds velocity: at most ~180.5px total.
-export const SECOND_JUMP_SPEED = 380;
+// Immediate launch, shorter ascent and stronger downward pull; holding has no effect.
+export const RISE_GRAVITY = 1250;
+export const FALL_GRAVITY = 1600;
+export const GRAVITY = RISE_GRAVITY; // Compatibility alias, not the descent gravity.
+export const JUMP_SPEED = 440;
+// A fresh air tap resets velocity, never adds it. Maximum combined apex: 185.60px.
+export const SECOND_JUMP_SPEED = 520;
+export const SINGLE_JUMP_APEX = JUMP_SPEED ** 2 / (2 * RISE_GRAVITY);
+export const SINGLE_JUMP_SECONDS = JUMP_SPEED / RISE_GRAVITY + Math.sqrt(2 * SINGLE_JUMP_APEX / FALL_GRAVITY);
+// Integrate through the apex exactly, rather than applying one gravity to a whole tick.
+export function flightAfter(y, vy, dt) {
+  const rise = vy > 0 ? Math.min(dt, vy / RISE_GRAVITY) : 0;
+  y += vy * rise - RISE_GRAVITY * rise * rise / 2;
+  vy -= RISE_GRAVITY * rise;
+  const fall = dt - rise;
+  return { y: y + vy * fall - FALL_GRAVITY * fall * fall / 2,
+    vy: vy - FALL_GRAVITY * fall };
+}
 export const FIXED_STEP = 1 / 120;
 // A hit freezes the world. Only advanceReaction may run this separate clock.
 export const HIT_REACTION_SECONDS = .85;
 // Time-domain geometry keeps the same traversal/flight budget at both speeds.
 export const TERRAIN = Object.freeze([
   { start: -10, end: 10, height: 0 },
-  { start: 10.95, end: 14, height: 0 },
+  { start: 10.70, end: 14, height: 0 },
   { start: 14, end: 18, height: -54 },
   { start: 18, end: 23, height: 0 },
-  { start: 23.95, end: 27, height: 0 },
+  { start: 23.70, end: 27, height: 0 },
   { start: 27, end: 31, height: 48 },
   { start: 31, end: 37, height: 0 },
-  { start: 37.95, end: 60, height: 0 },
+  { start: 37.70, end: 60, height: 0 },
 ].map(Object.freeze));
+const TERRAIN_EDGES = Object.freeze([...new Set(TERRAIN.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b));
 const SHAPES = {
-  crate: { duration: .16, h: 30, taps: 1, hint: '상자는 한 번 톡!', cueLead: .5 },
-  long: { duration: .95, h: 32, taps: 2, hint: '긴 화분! 톡, 잠깐 뒤 톡!', cueLead: .5 },
-  // Its 115px body-clearance threshold exceeds the 90.25px single-jump apex.
-  // Warn earlier so a second tap .4–.6s after the first can lift over the stack.
-  high: { duration: .25, h: 125, taps: 2, hint: '높은 상자! 2단 점프 준비', cueLead: 1 },
-  gap: { duration: .95, h: 0, taps: 2, hint: '빈 바닥! 두 번 톡!', cueLead: .5 },
-  step: { duration: .18, h: 54, taps: 1, hint: '높아지는 길! 한 번 톡!', cueLead: .5 },
+  crate: { duration: .12, h: 30, taps: 1, hint: '낮은 상자! 점프 준비', cueLead: .5 },
+  long: { duration: .64, h: 32, taps: 2, hint: '긴 화분! 2단 점프 준비', cueLead: .5, secondCue: .18 },
+  // Its 95px clearance threshold exceeds the 77.44px single-jump apex.
+  // The early second cue leaves time to lift before the face, not above its middle.
+  high: { duration: .16, h: 105, taps: 2, hint: '높은 상자! 2단 점프 준비', cueLead: .81, secondCue: .14 },
+  gap: { duration: .70, h: 0, taps: 2, hint: '빈 바닥! 2단 점프 준비', cueLead: .5, secondCue: .18 },
+  step: { duration: .18, h: 54, taps: 1, hint: '높아지는 길! 점프 준비', cueLead: .5 },
   drop: { duration: .18, h: 0, taps: 0, hint: '낮아지는 길, 사뿐!', cueLead: .5 },
 };
 export const ENCOUNTERS = Object.freeze([
@@ -68,7 +85,7 @@ export function createGame(mode = 'normal', width = 720) {
   if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) mode = 'normal';
   return { mode, width, status: 'ready', elapsed: 0, distance: 0, hearts: 3,
     snacks: 0, stars: 0, score: 0, combo: 0, y: 0, vy: 0, grounded: true, floorHeight: 0, recoveryUntil: 0, invincible: 0,
-    jumpHeld: false, jumpCount: 0, jumpStartedAt: null, pendingBoost: null,
+    jumpHeld: false, jumpCount: 0, jumpStartedAt: null, lastJumpAt: null, lastBoostAt: null, pendingBoost: null,
     reactionElapsed: 0, reactionRemaining: 0,
     obstacles: [], treats: [], serial: 0, event: '', events: [], hitCount: 0,
     cleared: 0, streak: 0, bestStreak: 0, segment: SEGMENTS[0], progress: 0,
@@ -86,8 +103,10 @@ function requestJump(game) {
   game.grounded = false;
   if (game.jumpCount === 0) game.jumpStartedAt = game.elapsed;
   game.jumpCount++;
+  game.lastJumpAt = game.elapsed;
   game.vy = game.jumpCount === 1 ? JUMP_SPEED : SECOND_JUMP_SPEED;
   if (game.jumpCount === 2) {
+    game.lastBoostAt = game.elapsed;
     // Preserve the input location; step publishes this once on its next physics tick.
     game.pendingBoost = { x: CAT_X + 66, y: GROUND - game.y - 30 };
   }
@@ -131,33 +150,49 @@ function damage(game, details) {
 }
 // Foot support is at CAT_X+70; obstacle collision retains its forgiving body core.
 // Land only on a descending crossing of an existing horizontal surface.
+// Exact descending time to a surface, including an apex inside this interval.
+function landingAfter(y, vy, floor) {
+  const rise = Math.max(0, vy / RISE_GRAVITY);
+  const apex = y + (vy > 0 ? vy * vy / (2 * RISE_GRAVITY) : 0);
+  if (apex < floor) return Infinity;
+  return vy > 0 ? rise + Math.sqrt(2 * (apex - floor) / FALL_GRAVITY)
+    : (vy + Math.sqrt(vy * vy + 2 * FALL_GRAVITY * (y - floor))) / FALL_GRAVITY;
+}
 function advanceTerrain(game,dt) {
   const now=game.elapsed, previous=now-dt;
-  const floor=floorAt(now);
-  game.floorHeight=floor;
+  game.floorHeight=floorAt(now);
   if (now < game.recoveryUntil) {
     game.grounded=true; game.vy=0; game.jumpCount=0;
     return;
   }
-  if (game.grounded && game.vy<=0 && floor===game.y) return;
-  // Walking off an edge spends the ground jump; only the air tap remains.
-  if (game.grounded) game.jumpCount=Math.max(1,game.jumpCount);
-  game.grounded=false;
-  const oldY=game.y, oldVy=game.vy;
-  game.y+=game.vy*dt-GRAVITY*dt*dt/2;
-  game.vy-=GRAVITY*dt;
-  // Swept rising face contact: crossing below its top is a hit, never a snap-up.
-  const edge=TERRAIN.find(s=>{
-    if (!(s.start>previous && s.start<=now &&
-      s.height>(floorAt(s.start-1e-5) ?? -Infinity))) return false;
-    const crossingTime=s.start-previous;
-    const crossingY=oldY+oldVy*crossingTime-GRAVITY*crossingTime*crossingTime/2;
-    return crossingY<s.height-1e-7;
-  });
-  if(edge) { recover(game,'wall',edge); return; }
-  if (floor!==null && game.vy<=0 && oldY>=floor-1e-7 && game.y<=floor) {
-    game.y=floor;game.vy=0;game.grounded=true;game.jumpCount=0;emit(game,'land');
-  } else if(game.y < -160) {
+  // Split at every terrain boundary. A walk-off begins at the real edge, and a
+  // raised face is tested at its crossing, never at the later end of the tick.
+  const edges=TERRAIN_EDGES.filter(t=>t>previous&&t<=now);
+  let cursor=previous;
+  for (const end of [...edges,...(edges.at(-1)===now?[]:[now])]) {
+    const floor=floorAt((cursor+end)/2);
+    if (!(game.grounded && floor===game.y && game.vy<=0)) {
+      if (game.grounded) game.jumpCount=Math.max(1,game.jumpCount);
+      game.grounded=false;
+      const duration=end-cursor;
+      const landing=floor===null?Infinity:landingAfter(game.y,game.vy,floor);
+      if (landing>=0 && landing<=duration+1e-10) {
+        const impactSpeed=-flightAfter(game.y,game.vy,Math.min(duration,landing)).vy;
+        game.y=floor;game.vy=0;game.grounded=true;game.jumpCount=0;
+        emit(game,'land',{impactSpeed,at:cursor+landing});
+      } else Object.assign(game,flightAfter(game.y,game.vy,duration));
+    }
+    const nextFloor=floorAt(end);
+    if (nextFloor!==null && nextFloor>(floor??-Infinity) && game.y<nextFloor-1e-7) {
+      const safe=TERRAIN.find(s=>s.start===end);
+      recover(game,'wall',safe);return;
+    }
+    if (game.grounded && nextFloor!==game.y) {
+      game.grounded=false;game.jumpCount=Math.max(1,game.jumpCount);
+    }
+    cursor=end;
+  }
+  if(game.y < -160) {
     const safe=TERRAIN.find(s=>s.start<=now && s.end>now) || TERRAIN.find(s=>s.start>now);
     recover(game,'fall',safe);
   }
@@ -204,9 +239,9 @@ function tick(game, dt) {
       const offset = encounter.taps === 2
         ? encounter.duration * speed * [.15, .5, .75][i]
         : encounter.taps === 0 ? speed * [.5, .7, .9][i] : -40 + i * 40;
-      const height = encounter.kind === 'high' ? [180,205,180][i]
-        : encounter.taps === 2 ? [105,170,125][i]
-        : encounter.taps === 0 ? 35 : 90 + (i === 1 ? 25 : 0);
+      const height = encounter.kind === 'high' ? [165,180,165][i]
+        : encounter.taps === 2 ? [125,180,160][i]
+        : encounter.taps === 0 ? 35 : 80 + (i === 1 ? 20 : 0);
       const rewardFloor = encounter.taps === 0
         ? floorAt(encounterAt + offset / speed) ?? floorHeight : floorHeight;
       game.treats.push({ x: x + offset, y: GROUND - rewardFloor - height,

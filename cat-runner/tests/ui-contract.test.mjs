@@ -36,7 +36,7 @@ test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>
 test('Phaser MIT license is retained',()=>{const license=readFileSync(file('vendor/PHASER-LICENSE.md'),'utf8');assert(license.includes('MIT'));assert(readFileSync(file('vendor/phaser-3.90.0.min.js')).length>1000000);});
 
 test('tutorial describes two separate taps and denies any hold-height effect',()=>{
- assert(html.includes('공중에서 잠깐 뒤 다시 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
+ assert(html.includes('공중에서 한 번 더 톡'));assert(html.includes('꾹 눌러도 높아지지 않아요'));
  assert(html.includes('id="jump-label"'));assert(html.includes('id="jump-state"'));
  assert(!html.includes('꾹 누르면'));assert(!game.includes('hold threshold'));
 });
@@ -46,7 +46,7 @@ test('real motion atlas and painted backdrop are local with registered runtime f
  assert.equal(motion.readUInt32BE(16),1774);assert.equal(motion.readUInt32BE(20),887);assert.equal(motion[25],6);
  const background=readFileSync(file('assets/moonlit-alley-v1.png'));
  assert.equal(background.readUInt32BE(16),2172);assert.equal(background.readUInt32BE(20),724);
- assert(game.includes('i < 8'));assert(/295\s*\/\s*310/.test(game));assert(/\?\s*6\s*:\s*7/.test(game));
+ assert(game.includes('i < 8'));assert(/295\s*\/\s*310/.test(game));assert(/\?\s*6\s*:\s*7/.test(readFileSync(file('animation.mjs'),'utf8')));
  assert(game.includes('distance * .012'));assert(game.includes('Math.min(200,'));
 });
 test('score, obstacle hints and audio lifecycle are connected',()=>{
@@ -85,4 +85,15 @@ test('hiss uses a transparent generated pose with reset and reduced-motion fallb
  assert(game.includes('advanceReaction(game,dt)'));assert(game.includes('visualClock+=game.elapsed-before'));
  assert(game.includes('audio.pause({preserveHit:true})'));
  assert(readFileSync(file('scripts/build-standalone.py'),'utf8').includes('fuwa-hiss-front-v1.png'));
+});
+
+
+test('distinct second-jump and landing atlas uses common registration and measured scale',()=>{
+ const art=readFileSync(file('assets/fuwa-jump-land-v1.png'));
+ assert.equal(art.readUInt32BE(16),1254);assert.equal(art.readUInt32BE(20),1254);assert.equal(art[25],6);
+ assert(game.includes("this.load.image('jump-land', './assets/fuwa-jump-land-v1.png')"));
+ assert(game.includes('Math.floor(i/2)*627+105,627,445'));assert(game.includes('351/445'));assert(game.includes('.32*pose.stretchX'));
+ assert(game.includes('actionFloorLift(pose,game)'));assert(game.includes('scene.landEffect(event.impactSpeed)'));
+ assert(game.includes('secondJumpCueSeconds(game.mode,longFlight)'));
+ const build=readFileSync(file('scripts/build-standalone.py'),'utf8');assert(build.includes('fuwa-jump-land-v1.png'));assert(build.includes("root / 'animation.mjs'"));
 });

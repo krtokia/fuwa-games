@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const engine=readFileSync(new URL('../engine.mjs',import.meta.url),'utf8').replaceAll('export ','');
+const animation=readFileSync(new URL('../animation.mjs',import.meta.url),'utf8').replaceAll('export ','');
 const controller=readFileSync(new URL('../game.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 function setup(saved = null) {
  const elements=new Map();
@@ -21,8 +22,8 @@ function setup(saved = null) {
  const window=new Element('window');
  class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type){this.calls.push(['play',type]);}}
  const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(){}},matchMedia:()=>({matches:false}),console};
- vm.createContext(sandbox);vm.runInContext(engine+'\n'+controller,sandbox);
- vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
+ vm.createContext(sandbox);vm.runInContext(engine+'\n'+animation+'\n'+controller,sandbox);
+ vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},boostEffect(){},puff(){},landEffect(){},collectEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};
  return{el,document,window,tick,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},run:code=>vm.runInContext(code,sandbox),get held(){return vm.runInContext('heldInput',sandbox);}};
@@ -32,7 +33,7 @@ test('button and canvas tap or long hold always produce the same low jump',()=>{
  for(const target of ['jump','game-canvas'])for(const duration of [.05,.3,2]){
   const ui=setup();ui.el(target).emit('pointerdown',pointer);let peak=ui.tick(duration);
   ui.el(target).emit('pointerup',pointer);peak=Math.max(peak,ui.tick(1.5));
-  assert(peak>89&&peak<91);assert.equal(ui.game.y,0);assert.equal(ui.held,null);
+  const expected=ui.run('JUMP_SPEED**2/(2*RISE_GRAVITY)');assert(Math.abs(peak-expected)<.5);assert.equal(ui.game.y,0);assert.equal(ui.held,null);
  }
 });
 test('release then second pointer-down creates a double jump and third is ignored',()=>{
@@ -107,12 +108,12 @@ test('long-jump cue explicitly waits before requesting the second tap',()=>{
 
 
 test('high-stack cue starts early and waits for a separate second tap',()=>{
- const ui=setup();ui.run("game.elapsed=32.08;game.courseIndex=9;game.hearts=3;game.invincible=0;game.y=0;game.vy=0;game.grounded=true;game.jumpCount=0;game.obstacles=[];game.treats=[];");
+ const ui=setup();ui.run("game.elapsed=33-jumpCueSeconds(game.mode,ENCOUNTERS.find(o=>o.kind==='high'))+.14;game.courseIndex=9;game.hearts=3;game.invincible=0;game.y=0;game.vy=0;game.grounded=true;game.jumpCount=0;game.obstacles=[];game.treats=[];");
  ui.tick(.01);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 톡! 잠깐 뒤 다시 톡');
  ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
  assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
- ui.tick(.32);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
- ui.tick(.1);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.el('hint').textContent,'사뿐히 착지해요');ui.tick(1.2);ui.refresh();
+ ui.tick(.16);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+ ui.tick(.14);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.el('hint').textContent,'사뿐히 착지해요');ui.tick(1.2);ui.refresh();
  assert.equal(ui.game.hitCount,0);assert.equal(ui.game.grounded,true);
 });
 
@@ -120,7 +121,7 @@ test('last collision stops music preserving hiss, and result uses separate cours
  const ui=setup();ui.run("game.status='finished';game.hearts=0;finish();");
  assert.equal(ui.el('jump').disabled,true);assert.equal(ui.el('pause').disabled,true);
  assert.equal(ui.game.status,'finished');assert.equal(ui.el('result-title').textContent,'다시 달려볼까요?');
- assert(ui.run("Object.hasOwn(saved,'score_v7_normal')"));
+ assert(ui.run("Object.hasOwn(saved,'score_v9_normal')"));
  ui.el('again').emit('click');assert.equal(ui.game.hitCount,0);assert.equal(ui.game.hearts,3);
  assert.equal(ui.run('pausedStatus'),null);assert.equal(ui.game.reactionRemaining,0);
 });
@@ -136,9 +137,9 @@ function renderedUI(mode='normal') {
  const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAlpha')o.alpha=v[0];if(k==='setVisible')o.visible=v[0];return n.proxy;}});};
  const drawNode=()=>{const n=node();n.proxy=n;return n;};
  scene=new TestScene();scene.scale={width:720,height:420};scene.cameraTop=0;
- for(const name of ['cat','shadow','ring','rescue','backdrop','finishGate','hissLabel'])scene[name]=drawNode();
+ for(const name of ['cat','shadow','ring','rescue','backdrop','finishGate','hissLabel','boostRing'])scene[name]=drawNode();
  scene.lamps=[];scene.fireflies=[];scene.puff=()=>{};scene.syncObjects=()=>{};
- scene.collectEffect=scene.landEffect=scene.clearEffect=scene.finishEffect=()=>{};
+ scene.collectEffect=scene.clearEffect=scene.finishEffect=()=>{};
  scene.tweens={paused:false,pauseAll(){this.paused=true;},resumeAll(){this.paused=false;},killAll(){this.paused=false;}};
  `);
  ui.frame=(dt=1/120)=>ui.run(`scene.update(0,${dt*1000})`);
@@ -200,4 +201,39 @@ test('paused pit reaction restores keyboard focus only after safe-ground recover
  while(ui.el('jump').disabled)ui.frame();
  assert.equal(ui.document.activeElement,ui.el('jump'));assert.equal(ui.run('restoreJumpFocus'),false);
  ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});assert.equal(ui.game.jumpCount,1);
+});
+
+
+test('touch pointer press changes velocity immediately and compatibility click cannot double-trigger',()=>{
+ for(const target of ['jump','game-canvas']) {
+  const ui=setup(),touch={...pointer,pointerType:'touch',width:18,height:18,pressure:.5};
+  const time=ui.game.elapsed;ui.el(target).emit('pointerdown',touch);
+  assert.equal(ui.game.elapsed,time);assert.equal(ui.game.vy,ui.run('JUMP_SPEED'));assert.equal(ui.game.jumpCount,1);
+  ui.tick(.15);ui.window.emit('pointerup',touch);ui.el('jump').emit('click',{detail:1});assert.equal(ui.game.jumpCount,1);
+  ui.el(target).emit('pointerdown',touch);assert.equal(ui.game.vy,ui.run('SECOND_JUMP_SPEED'));assert.equal(ui.game.jumpCount,2);
+  ui.window.emit('pointercancel',touch);assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);
+  ui.el(target).emit('pointerdown',touch);assert.equal(ui.game.jumpCount,2);ui.window.emit('pointerup',touch);
+  ui.tick(1.5);assert.equal(ui.game.jumpCount,0);assert.equal(ui.game.grounded,true);
+ }
+});
+
+test('actual scene uses distinct boost frames and immediate boost sound only once',()=>{
+ const ui=renderedUI();ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ for(let i=0;i<18;i++)ui.frame();
+ ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ assert.equal(ui.game.jumpCount,2);assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='boost').length"),1);
+ ui.frame();assert.equal(ui.run('scene.cat.texture'),'jump-land');assert.equal(ui.run('scene.cat.frame'),'action-0');
+ for(let i=0;i<7;i++)ui.frame();assert.equal(ui.run('scene.cat.frame'),'action-1');
+ for(let i=0;i<12;i++)ui.frame();assert.equal(ui.run('scene.cat.texture'),'motion');
+ assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='boost').length"),1);
+});
+
+test('actual landing animation is interrupted by a fresh jump without waiting for its last frame',()=>{
+ const ui=renderedUI();ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ while(!ui.game.grounded)ui.frame();
+ assert.equal(ui.run('scene.cat.texture'),'jump-land');assert.equal(ui.run('scene.cat.frame'),'action-2');
+ assert(ui.run('scene.landImpact')>0);
+ ui.el('jump').emit('pointerdown',{...pointer,pointerType:'touch'});
+ assert.equal(ui.game.grounded,false);assert.equal(ui.game.vy,ui.run('JUMP_SPEED'));
+ ui.frame();assert.equal(ui.run('scene.cat.texture'),'motion');assert.equal(ui.run('scene.cat.frame'),'pose-6');
 });
