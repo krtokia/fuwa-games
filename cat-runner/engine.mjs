@@ -28,7 +28,7 @@ const SHAPES = {
   long: { duration: .95, h: 32, taps: 2, hint: '긴 화분! 톡, 잠깐 뒤 톡!', cueLead: .5 },
   // Its 115px body-clearance threshold exceeds the 90.25px single-jump apex.
   // Warn earlier so a second tap .4–.6s after the first can lift over the stack.
-  high: { duration: .25, h: 125, taps: 2, hint: '높은 상자! 미리 톡, 한 번 더 톡!', cueLead: 1 },
+  high: { duration: .25, h: 125, taps: 2, hint: '높은 상자! 2단 점프 준비', cueLead: 1 },
   gap: { duration: .95, h: 0, taps: 2, hint: '빈 바닥! 두 번 톡!', cueLead: .5 },
   step: { duration: .18, h: 54, taps: 1, hint: '높아지는 길! 한 번 톡!', cueLead: .5 },
   drop: { duration: .18, h: 0, taps: 0, hint: '낮아지는 길, 사뿐!', cueLead: .5 },

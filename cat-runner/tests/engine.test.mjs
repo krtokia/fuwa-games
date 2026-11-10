@@ -39,7 +39,7 @@ test('authored long obstacle mathematically exceeds all possible single-jump cle
 test('high stack requires height beyond every possible single-jump timing',()=>{
  const high=ENCOUNTERS.find(o=>o.kind==='high');
  assert.equal(high.encounterAt,33);assert.equal(high.taps,2);assert.equal(high.cueLead,1);
- assert.equal(high.h,125);assert.equal(high.duration,.25);
+ assert.equal(high.h,125);assert.equal(high.duration,.25);assert(high.hint.includes('준비'));
  // Cat collision feet are 5px above y=0; obstacle top is inset by another5px.
  // Even the global single-jump maximum cannot clear the resulting115px top.
  // This continuous inequality covers all timings, not just the sampled inputs.
