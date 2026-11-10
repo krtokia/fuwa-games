@@ -140,6 +140,7 @@ function updateHUD() {
   let text='';
   if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
   else if(game.elapsed<noticeUntil)text='하악! 다시 달려요!';
+  else if(!game.grounded&&game.jumpCount>=2)text='사뿐히 착지해요';
   else if(longFlight&&game.jumpCount===1&&jumpAge<secondCue)text='조금 더 날아가요…';
   else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue&&jumpAge<=.85)text='지금 한 번 더 톡! ↑↑';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';

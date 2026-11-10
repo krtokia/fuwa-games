@@ -102,7 +102,7 @@ test('long-jump cue explicitly waits before requesting the second tap',()=>{
  assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
  ui.tick(.42);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,2);
- assert.notEqual(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+ assert.equal(ui.el('hint').textContent,'사뿐히 착지해요');
 });
 
 
@@ -112,7 +112,7 @@ test('high-stack cue starts early and waits for a separate second tap',()=>{
  ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
  assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
  ui.tick(.32);ui.refresh();assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
- ui.tick(.1);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);ui.tick(1.2);ui.refresh();
+ ui.tick(.1);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.el('hint').textContent,'사뿐히 착지해요');ui.tick(1.2);ui.refresh();
  assert.equal(ui.game.hitCount,0);assert.equal(ui.game.grounded,true);
 });
 
