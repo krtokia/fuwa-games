@@ -20,11 +20,11 @@ h1{font-size:clamp(30px,4.3vw,43px);font-weight:850;letter-spacing:-.05em;line-h
 .stat{display:flex;flex-direction:column;gap:1px;min-width:80px}
 .stat-label{font-size:11px;font-weight:700;color:#b5c6bd}
 .stat strong{font-size:25px;line-height:1.3;font-variant-numeric:tabular-nums}
-.stat strong span:not(#snacks),.stat small{font-size:13px;font-weight:600}
+.stat strong span:not(#snacks):not(#potions),.stat small{font-size:13px;font-weight:600}
 .score-stat{flex:1}
 .score-stat strong{color:#f6cb7c}
 .treat-stat strong>span:first-child{color:#f3c471;font-size:20px}
-.heart-stat strong{color:#edab91;letter-spacing:2px;font-size:21px;white-space:nowrap}
+.potion-stat strong{color:#b6f5df;white-space:nowrap}
 .pause-button{border:1px solid #59736c;border-radius:12px;background:#2d4e4e;color:#e6edda;min-height:46px;padding:0 15px;font-size:16px;font-weight:700}
 .pause-button:disabled{opacity:.45}
 .run-strip{display:flex;justify-content:space-between;gap:10px;border-top:1px solid #385354;padding:7px 24px;background:#142f34;font-size:11px;color:#92ada9;letter-spacing:.04em}
@@ -93,10 +93,10 @@ h2{font-size:23px;line-height:1.3;letter-spacing:-.04em;margin:5px 0 8px}
 .stat{min-width:0;flex:1}
 .stat-label{font-size:10px}
 .stat strong{font-size:20px}
-.stat strong span:not(#snacks),.stat small{font-size:11px}
+.stat strong span:not(#snacks):not(#potions),.stat small{font-size:11px}
 .treat-stat strong>span:first-child{font-size:15px}
-.heart-stat{flex:1.25}
-.heart-stat strong{font-size:16px;letter-spacing:0}
+.potion-stat{flex:1.25}
+.potion-stat strong{font-size:16px;letter-spacing:0}
 .pause-button{min-height:44px;min-width:44px;padding:0 9px}
 .pause-button span{display:none}
 .run-strip{padding:6px 12px;font-size:10px}
@@ -126,7 +126,7 @@ h2{font-size:21px}
 
 @media(max-width:360px){.dashboard{gap:7px;padding:11px 9px}
 .stat strong{font-size:18px}
-.heart-stat strong{font-size:14px}
+.potion-stat strong{font-size:14px}
 .stat-label{font-size:9px}
 .jump-button{font-size:20px;gap:5px}
 .controls{gap:8px}
@@ -147,3 +147,9 @@ h1{font-size:26px}
 /* Cues belong next to the jump button, never over the cat's high arc. */
 .control-tip .hint{position:static;transform:none;max-width:none;min-height:22px;padding:0;border:0;border-radius:0;background:none;box-shadow:none;color:#f6d38b;font-size:16px;line-height:1.4;text-align:left;white-space:normal}
 @media(max-width:600px){.control-tip .hint{font-size:13px;min-height:19px}}
+
+/* Timer is the only run resource; color changes do not flash. */
+#time.low-time{color:#ffba9e}
+.progress.low-time span{background:#ee9d84}
+.seed-note{font-size:11px!important;color:#677769;overflow-wrap:anywhere}
+#seed-label{font-variant-numeric:tabular-nums;letter-spacing:.04em}

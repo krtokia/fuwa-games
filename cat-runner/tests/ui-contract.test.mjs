@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
-import { ROUND_SECONDS } from '../engine.mjs';
+import { STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS } from '../engine.mjs';
 const file=p=>new URL('../'+p,import.meta.url);
 const html=readFileSync(file('index.html'),'utf8');
 const game=readFileSync(file('game.mjs'),'utf8');
@@ -23,8 +23,12 @@ test('generated PNG is a full-size RGBA raster, not an SVG replacement',()=>{
  assert.equal(data.subarray(1,4).toString(),'PNG');assert.equal(data.readUInt32BE(16),1536);assert.equal(data.readUInt32BE(20),1024);
  assert.equal(data[25],6);assert(/this\.load\.image\('fuwa',\s*'\.\/assets\/fuwa-generated\.png'\)/.test(game));assert(!game.includes('fuwa.svg'));
 });
-test('HTML duration agrees with the authored course',()=>{
- assert(html.includes(`aria-valuemax="${ROUND_SECONDS}"`));assert(html.includes(`${ROUND_SECONDS}초 코스`));
+test('HTML explains the time budget and labels the remaining-time meter',()=>{
+ assert.equal(STARTING_SECONDS,30);assert.equal(POTION_SECONDS,10);assert.equal(COLLISION_PENALTY_SECONDS,5);
+ assert(html.includes(`aria-valuemax="${STARTING_SECONDS}"`));assert(html.includes(`aria-valuenow="${STARTING_SECONDS}"`));
+ assert(html.includes(`aria-label="남은 시간"`));
+ assert(html.includes(`${STARTING_SECONDS}초 시작 · 포션 +${POTION_SECONDS}초 · 충돌 -${COLLISION_PENALTY_SECONDS}초`));
+ assert(game.includes('Math.ceil(game.remainingTime)'));
 });
 test('jump acts on pointer-down, tab loss pauses, responsive resize pauses',()=>{
  assert(game.includes("target.addEventListener('pointerdown',pointerPress)"));
@@ -80,7 +84,7 @@ test('hiss uses a transparent generated pose with reset and reduced-motion fallb
  const pose=readFileSync(file('assets/fuwa-hiss-front-v1.png'));
  assert.equal(pose.readUInt32BE(16),1254);assert.equal(pose.readUInt32BE(20),1254);assert.equal(pose[25],6);
  assert(game.includes("this.load.image('hiss', './assets/fuwa-hiss-front-v1.png')"));
- assert(game.includes("this.reactionFootY = GROUND + 1; this.finishGate"));assert(game.includes("setTexture('hiss','trimmed')"));
+ assert(game.includes('this.reactionFootY = GROUND + 1;'));assert(game.includes('this.hissLabel?.setVisible(false)'));assert(game.includes("setTexture('hiss','trimmed')"));
  assert(game.includes('reducedMotion.matches?1:1+.035'));assert(game.includes("'하악!'"));
  assert(game.includes('advanceReaction(game,dt)'));assert(game.includes('visualClock+=game.elapsed-before'));
  assert(game.includes('audio.pause({preserveHit:true})'));
@@ -96,4 +100,29 @@ test('distinct second-jump and landing atlas uses common registration and measur
  assert(game.includes('actionFloorLift(pose,game)'));assert(game.includes('scene.landEffect(event.impactSpeed)'));
  assert(game.includes('secondJumpCueSeconds(game.mode,longFlight)'));
  const build=readFileSync(file('scripts/build-standalone.py'),'utf8');assert(build.includes('fuwa-jump-land-v1.png'));assert(build.includes("root / 'animation.mjs'"));
+});
+
+
+test('time survival removes hearts, the fixed finish gate, and old course-completion promises',()=>{
+ for(const source of [html,game]){
+  assert(!/hearts|후와의 기운|기운 3개|44초|코스 완주|달빛 정원 도착/.test(source));
+  assert(!/finishGate|garden-gate|game.status\s*===?\s*['"]won/.test(source));
+ }
+ assert(!html.includes('id="hearts"'));assert(html.includes('id="potions"'));
+ assert(game.includes('score_v10_'));assert(!game.includes('score_v9_'));
+});
+
+test('seeded retry and a distinct new-course action are exposed to the player',()=>{
+ for(const id of ['seed-label','result-seed','again','new-course'])assert(html.includes(`id="${id}"`));
+ assert(html.includes('같은 길 다시'));assert(html.includes('새로운 길 달리기'));
+ assert(game.includes('start(game.seed)'));assert(game.includes('nextSeed=freshSeed()'));
+ assert(game.includes('new URLSearchParams'));assert(game.includes(".get('seed')"));
+});
+
+test('time potions have a distinct local bottle, seconds label, sound and tutorial',()=>{
+ assert(game.includes("make('potion', 56, 66"));
+ assert(game.includes("if(event.type==='potion')"));assert(game.includes("audio.play('potion')"));
+ assert(game.includes("kind==='potion'?`+${value}초`"));
+ assert(game.includes('시간 포션 +${event.seconds}초'));
+ assert(html.includes('시간 포션'));
 });

@@ -52,7 +52,7 @@ const hissVoice = f => [...f.audio.voices].find(voice => voice.kind === 'hit');
 
 test('off by default: no context, effects, buffers, or music timer', () => {
   const f = fixture(); f.audio.start();
-  for (const kind of ['jump', 'boost', 'collect', 'hit', 'finish']) f.audio.play(kind);
+  for (const kind of ['jump', 'boost', 'collect', 'potion', 'hit', 'finish']) f.audio.play(kind);
   assert.equal(f.creates, 0); assert.equal(f.timers.size, 0); assert.equal(f.nodes.length, 0); assert.equal(f.buffers.length, 0);
 });
 test('restart and repeated resume keep exactly one music loop', () => {
@@ -68,7 +68,7 @@ test('pause and disable immediately stop all scheduled voices', () => {
 });
 test('all effects are available and unknown effects are harmless', () => {
   const f = playing();
-  for (const kind of ['jump', 'boost', 'collect', 'hit', 'finish']) {
+  for (const kind of ['jump', 'boost', 'collect', 'potion', 'hit', 'finish']) {
     const before = f.nodes.length; f.audio.play(kind, { combo: 4 }); assert.ok(f.nodes.length > before, kind);
   }
   assert.doesNotThrow(() => f.audio.play('unknown')); f.audio.dispose();
@@ -204,4 +204,17 @@ test('hit-stop pause keeps only hiss and resumes melody position without unlocki
  f.context.state='suspended';f.audio.resume({fromGesture:false});
  assert.equal(f.context.state,'suspended');assert.equal(f.timers.size,0);
  f.audio.resume();assert.equal(f.context.state,'running');assert.equal(f.timers.size,1);f.audio.dispose();
+});
+
+
+test('time potion has a distinct three-note rise, separate from a two-note snack', () => {
+  const f = playing(), before = f.nodes.length;
+  f.audio.play('potion'); const potion = f.nodes.slice(before);
+  assert.equal(potion.length, 3); assert.ok(potion.every(n => n.kind === 'oscillator' && n.type === 'sine'));
+  assert.ok(potion[0].starts[0] >= f.context.currentTime);
+  potion.forEach((n, i) => assert.ok(Math.abs(n.starts[0] - potion[0].starts[0] - i * .07) < 1e-12));
+  const frequencies = potion.map(n => n.frequency.events[0].value);
+  assert.ok(frequencies[0] < frequencies[1] && frequencies[1] < frequencies[2]);
+  const next = f.nodes.length; f.audio.play('collect'); assert.equal(f.nodes.length - next, 2);
+  f.audio.pause(); assert.ok(potion.every(n => n.stopped)); f.audio.dispose();
 });

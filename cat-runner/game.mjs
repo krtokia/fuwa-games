@@ -1,4 +1,4 @@
-import { MODES, ROUND_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
+import { MODES, STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
 import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 import { runnerPose, actionFloorLift } from './animation.mjs';
@@ -13,10 +13,20 @@ try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } cat
 if (typeof saved !== 'object' || Array.isArray(saved)) saved = {};
 // Pace changed in v0.4: start everyone on the new runner speed once, then remember their choice.
 let mode = saved.paceVersion === 4 && typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'normal';
-let game = createGame(mode, 720);
+function freshSeed() {
+  if(globalThis.crypto?.getRandomValues) return globalThis.crypto.getRandomValues(new Uint32Array(1))[0];
+  return (Date.now() ^ Math.floor(Math.random()*0x100000000)) >>> 0;
+}
+function linkSeed() {
+  const value=new URLSearchParams(globalThis.location?.search || '').get('seed');
+  return value && /^[0-9a-f]{1,8}$/i.test(value) ? parseInt(value,16) >>> 0 : null;
+}
+const seedLabel=seed=>(seed>>>0).toString(16).padStart(8,'0');
+let nextSeed=linkSeed() ?? freshSeed();
+let game = createGame(mode, 720, {seed:nextSeed});
 let scene, renderer, loaded = false, soundOn = false;
 const audio = new RunnerAudio();
-let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastHearts = -1;
+let noticeUntil = 0, toastUntil = 0, lastSecond = -1, lastSnacks = -1, lastPotions = -1;
 let lastSegment = '', finished = false, visualClock = 0;
 let heldInput = null;
 let pausedStatus = null;
@@ -28,12 +38,13 @@ function overlay(card) {
   $('overlay').hidden = !card;
   for (const id of ['start-card', 'result-card', 'pause-card']) $(id).hidden = id !== card;
 }
-function start() {
+function start(seed=nextSeed) {
   if (!loaded) return;
   endJump();
-  game = createGame(mode, scene.scale.width); game.status = 'running';
+  game = createGame(mode, scene.scale.width, {seed}); game.status = 'running';
+  nextSeed=game.seed;
   noticeUntil = 0; toastUntil = 0; finished = false; lastSegment = '';
-  lastSecond = lastSnacks = lastHearts = -1; visualClock = 0; pausedStatus = null; restoreJumpFocus = false;
+  lastSecond = lastSnacks = lastPotions = -1; visualClock = 0; pausedStatus = null; restoreJumpFocus = false;
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
@@ -88,7 +99,7 @@ function resume() {
 }
 function showStart() {
   endJump(); audio.stop();
-  scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720); finished = false;
+  scene?.tweens.resumeAll(); game = createGame(mode, scene?.scale.width || 720, {seed:nextSeed}); finished = false;
   pausedStatus = null; restoreJumpFocus = false; scene?.resetRun(); $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
   overlay('start-card'); $('start').focus({preventScroll:true}); updateHUD();
@@ -98,34 +109,38 @@ function finish() {
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
-  const won = game.status === 'won', key = `score_v9_${game.mode}`;
+  const key = `score_v10_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
-  $('result-kicker').textContent = won ? '집 앞 골목에서 달빛 정원까지' : '다음 산책도 함께해요';
-  $('result-title').textContent = won ? '달빛 정원 도착!' : '다시 달려볼까요?';
+  $('result-kicker').textContent = '달빛 골목 · 시간 기록';
+  $('result-title').textContent = '오늘은 여기까지!';
   $('result-score').textContent = game.score.toLocaleString();
-  const medal = won ? (game.hitCount === 0 ? 3 : game.hearts >= 2 ? 2 : 1) : 0;
-  $('result-rating').textContent = `${'★'.repeat(medal)}${'☆'.repeat(3-medal)} · ${won ? (medal===3?'완벽한 달리기!':'코스 완주!'):'다음엔 더 멀리!'}`;
-  $('result-copy').textContent = `${Math.floor(game.elapsed)}초 · 간식 ${game.snacks}개 · 별 ${game.stars}개 · 최장 ${game.bestStreak}연속`;
+  $('result-rating').textContent = game.hitCount===0 ? '깔끔한 달리기!' : '다음엔 조금 더 멀리!';
+  $('result-copy').textContent = `${game.elapsed.toFixed(1)}초 달리기 · 포션 ${game.potions}개 · 충돌 ${game.hitCount}번 · 간식 ${game.snacks}개 · 별 ${game.stars}개`;
+  $('result-seed').textContent = `길 번호 ${seedLabel(game.seed)} · 같은 길로 다시 도전할 수 있어요`;
   $('record').textContent = `${game.score>previous?'새 기록! ':''}${MODES[mode].label} 최고 ${saved[key].toLocaleString()}점`;
   overlay('result-card'); $('again').focus({preventScroll:true});
   announce(`${$('result-title').textContent}. ${$('result-copy').textContent}`);
-  audio.stop({ preserveHit: !won }); if(won) { audio.play('finish'); scene.finishEffect(); }
+  audio.stop(); audio.play('finish');
 }
 function toast(text, duration=1.5) {
   $('course-toast').textContent=text; $('course-toast').classList.add('visible'); toastUntil=game.elapsed+duration;
 }
 function updateHUD() {
-  const seconds=Math.max(0,Math.ceil(ROUND_SECONDS-game.elapsed));
+  const seconds=Math.max(0,Math.ceil(game.remainingTime));
   $('score').textContent=game.score.toLocaleString();
   $('combo').textContent=game.streak>0?`${game.streak} COMBO`:'—';
   if(seconds!==lastSecond) {
     $('time').replaceChildren(document.createTextNode(String(seconds)),Object.assign(document.createElement('span'),{textContent:'초'}));
-    document.querySelector('.progress').setAttribute('aria-valuenow',String(Math.floor(game.elapsed))); lastSecond=seconds;
+    document.querySelector('.progress').setAttribute('aria-valuenow',String(seconds));
+    document.querySelector('.progress').setAttribute('aria-valuemax',String(Math.max(STARTING_SECONDS,seconds))); lastSecond=seconds;
   }
   if(lastSnacks!==game.snacks) {$('snacks').textContent=game.snacks;lastSnacks=game.snacks;}
-  if(lastHearts!==game.hearts) {$('hearts').textContent='♥ '.repeat(game.hearts).trim()+(game.hearts<3?' '+'♡ '.repeat(3-game.hearts).trim():'');$('hearts').setAttribute('aria-label',`기운 ${game.hearts}개`);lastHearts=game.hearts;}
-  $('progress-fill').style.width=`${game.elapsed/ROUND_SECONDS*100}%`;
+  if(lastPotions!==game.potions) {$('potions').textContent=game.potions;lastPotions=game.potions;}
+  $('seed-label').textContent=seedLabel(game.seed);
+  $('time').classList.toggle('low-time',game.remainingTime<=10);
+  $('progress-fill').style.width=`${Math.min(1,Math.max(0,game.remainingTime/STARTING_SECONDS))*100}%`;
+  document.querySelector('.progress').classList.toggle('low-time',game.remainingTime<=10);
   if(game.segment?.name) {
     $('segment-label').textContent=game.segment.name;
     if(lastSegment!==game.segment.id) {if(lastSegment && game.status==='running')toast(game.segment.name,2);lastSegment=game.segment.id;}
@@ -138,8 +153,8 @@ function updateHUD() {
   $('jump-state').textContent=canDouble?'공중에서 한 번 더 가능':airborne?'착지하면 다시 점프해요':'한 번 톡 = 낮은 점프';
   if(reacting) {
     $('jump').disabled=true; $('jump-label').textContent='잠깐';
-    $('jump-state').textContent=game.hearts>0?'후와가 진정하면 다시 달려요':'후와가 잠깐 진정하는 중';
-    $('hint').textContent='하악! 잠깐만요…'; $('hint').classList.add('visible');
+    $('jump-state').textContent=game.remainingTime>0?'후와가 진정하면 다시 달려요':'후와가 잠깐 진정하는 중';
+    $('hint').textContent=`하악! -${game.collisionPenaltySeconds}초 · 잠깐만요…`; $('hint').classList.add('visible');
     $('course-toast').classList.remove('visible'); return;
   }
   if(game.status!=='running') return;
@@ -168,15 +183,18 @@ function updateHUD() {
 }
 function handleEvent(event) {
   if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
+  if(event.type==='potion') {scene.collectEffect(event.x,event.y,event.seconds,'potion');audio.play('potion');toast(`시간 포션 +${event.seconds}초`,1.4);announce(`시간 포션! ${event.seconds}초 추가, ${Math.ceil(game.remainingTime)}초 남았어요.`);}
   if(event.type==='land') scene.landEffect(event.impactSpeed);
-  if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.hearts>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
+  if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.remainingTime>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
-  if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit');audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} 기운 ${game.hearts}개가 남았어요.`);}
+  if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit');audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} ${game.collisionPenaltySeconds}초 감소. ${Math.ceil(game.remainingTime)}초가 남았어요.`);}
 }
 for(const input of document.querySelectorAll('[name="mode"]')) {
   input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
 }
-$('start').addEventListener('click',start);$('again').addEventListener('click',start);
+$('start').addEventListener('click',()=>start(nextSeed));
+$('again').addEventListener('click',()=>start(game.seed));
+$('new-course').addEventListener('click',()=>{nextSeed=freshSeed();if(nextSeed===game.seed)nextSeed=(nextSeed+1)>>>0;start(nextSeed);});
 $('change-mode').addEventListener('click',showStart);$('restart').addEventListener('click',showStart);
 $('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
 // Every release-then-press is one jump. Holding never changes height or repeats.
@@ -202,8 +220,8 @@ document.addEventListener('keydown',event=>{
 document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code==='ArrowUp')endJump(`key:${event.code}`);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
 $('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'&&game.reactionRemaining<=0){audio.resume();audio.play('collect');}});
-document.querySelector('.progress').setAttribute('aria-valuemax',String(ROUND_SECONDS));
-document.querySelector('.card-note').textContent=`${ROUND_SECONDS}초 코스 · 기운 3개 · 점프 버튼 하나`;
+document.querySelector('.progress').setAttribute('aria-valuemax',String(STARTING_SECONDS));
+document.querySelector('.card-note').textContent=`${STARTING_SECONDS}초 시작 · 포션 +${POTION_SECONDS}초 · 충돌 -${COLLISION_PENALTY_SECONDS}초`;
 
 function bootPhaser() {
   const Phaser = window.Phaser;
@@ -245,9 +263,6 @@ function bootPhaser() {
       this.hissLabel = this.add.text(CAT_X+66,GROUND-130,'하악!',{fontFamily:'sans-serif',fontSize:'28px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16).setVisible(false);
       this.boostRing=this.add.ellipse(CAT_X+66,GROUND+8,78,24).setStrokeStyle(3,0xffdfa0,.9).setVisible(false).setDepth(9);
       this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
-      this.finishGate = this.add.container(0, GROUND).setDepth(4);
-      this.finishGate.add(this.add.image(0, 0, 'garden-gate').setOrigin(.5, 1));
-      this.finishGate.add(this.add.text(0, -125, '달빛 정원', {fontFamily: 'sans-serif', fontSize: '18px', fontStyle: 'bold', color: '#ffedc7'}).setOrigin(.5));
       const resize = size => {
         this.cameraTop=GROUND-size.height*.82;
         this.cameras.main.setScroll(0,this.cameraTop);
@@ -292,6 +307,14 @@ function bootPhaser() {
         c.beginPath(); c.ellipse(26, 16, 14, 10, 0, 0, Math.PI * 2); c.fill(); c.shadowBlur = 0; c.strokeStyle = '#9d722b'; c.lineWidth = 1.5; c.stroke();
         c.fillStyle = '#fff2c8'; c.beginPath(); c.ellipse(24, 12, 7, 2, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = '#6c4b25'; c.beginPath(); c.arc(33, 14, 1.8, 0, Math.PI * 2); c.fill();
       });
+      make('potion', 56, 66, c => {
+        c.shadowColor='#a7ffe0'; c.shadowBlur=10;
+        rounded(c,14,21,28,35,10,'#6bd3ba','#e8fff3'); c.shadowBlur=0;
+        rounded(c,20,11,16,17,3,'#d7f5d7','#365f59');
+        rounded(c,18,7,20,8,3,'#d6b379','#745b40');
+        c.fillStyle='#c8ffe9'; c.beginPath(); c.ellipse(22,32,3,7,0,0,Math.PI*2); c.fill();
+        c.fillStyle='#164e4b'; c.font='bold 16px sans-serif'; c.textAlign='center';c.fillText('+10',28,46);
+      });
       make('star', 48, 48, c => { c.shadowColor = '#ffe6a1'; c.shadowBlur = 12; star(c, 24, 24, 17, '#ffdb7c'); c.shadowBlur = 0; star(c, 24, 23, 10, '#fff2bc'); });
       make('fence', 240, 32, c => { c.fillStyle = '#183d40'; c.fillRect(0, 0, 240, 32); c.fillStyle = '#4e6c60'; c.fillRect(0, 0, 240, 3); c.strokeStyle = '#34534e'; c.lineWidth = 1; for (let x = 0; x < 240; x += 60) { c.strokeRect(x, 4, 60, 12); c.strokeRect(x - 30, 18, 60, 13); } });
       make('road', 320, 62, c => {
@@ -305,18 +328,14 @@ function bootPhaser() {
         c.fillStyle = '#fff1bd'; c.fillRect(40, 23, 20, 31); c.strokeStyle = '#8c7654'; c.beginPath(); c.moveTo(50, 19); c.lineTo(50, 59); c.stroke();
         rounded(c, 31, 13, 38, 7, 3, '#355052'); rounded(c, 33, 60, 34, 6, 3, '#355052');
       });
-      make('garden-gate', 200, 175, c => {
-        for (const x of [25, 163]) rounded(c, x, 28, 12, 147, 4, '#42695b', '#173e42');
-        rounded(c, 15, 20, 170, 45, 8, '#30554c', '#9da77a');
-        c.strokeStyle = '#739373'; c.lineWidth = 3; c.beginPath(); c.moveTo(18, 172); c.quadraticCurveTo(0, 10, 100, 5); c.quadraticCurveTo(200, 10, 182, 172); c.stroke();
-        for (let i = 0; i < 14; i++) { const x = i % 2 ? 180 : 20, y = 35 + i * 9; c.fillStyle = i % 3 ? '#799966' : '#a3b77c'; c.beginPath(); c.ellipse(x + (i % 3 - 1) * 8, y, 12, 5, i % 2 ? -.6 : .6, 0, Math.PI * 2); c.fill(); }
-      });
+
     }
     resetRun() {
       this.tweens.killAll(); for (const item of this.fx) item.destroy(); this.fx = [];
       for (const item of this.boxes.values()) item.destroy(); for (const item of this.treats.values()) item.destroy(); this.boxes.clear(); this.treats.clear();
-      this.lastFootstep = 0; this.landAt = -1; this.landImpact = 0; this.reactionFootY = GROUND + 1; this.finishGate?.setVisible(false);
+      this.lastFootstep = 0; this.landAt = -1; this.landImpact = 0; this.reactionFootY = GROUND + 1;
       this.cat?.setAngle(0).setAlpha(1).clearTint(); this.hissLabel?.setVisible(false); this.boostRing?.setVisible(false);
+      this.rescue?.setVisible(false); this.ring?.setVisible(false);
     }
     puff(x, y, count = 4, color = 0xf6e4b8) {
       if (reducedMotion.matches) return;
@@ -331,8 +350,8 @@ function bootPhaser() {
       this.puff(CAT_X+66,GROUND-game.y-1,6+Math.min(4,Math.floor(impactSpeed/180)),0xa5b8aa);
     }
     collectEffect(x, y, value = 10, kind = 'fish') {
-      this.puff(x, y, kind === 'star' ? 10 : 5, kind === 'star' ? 0xffe6a1 : 0xffdf8d);
-      const label = this.add.text(x, y - 10, `+${value}`, {fontFamily: 'sans-serif', fontSize: kind === 'star' ? '23px' : '17px', fontStyle: 'bold', color: '#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
+      this.puff(x, y, kind === 'fish' ? 5 : 10, kind === 'potion' ? 0xa4ffe0 : kind === 'star' ? 0xffe6a1 : 0xffdf8d);
+      const label = this.add.text(x, y - 10, kind==='potion'?`+${value}초`:`+${value}`, {fontFamily: 'sans-serif', fontSize: kind !== 'fish' ? '23px' : '17px', fontStyle: 'bold', color: kind==='potion'?'#b8ffe9':'#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
       this.tweens.add({targets: label, y: y - 45, alpha: 0, duration: 600, onComplete: () => this.removeEffect(label)});
     }
     clearEffect() { if (game.streak % 3 === 0) this.puff(CAT_X + 80, GROUND - game.y - 70, 8, 0xe5f4b9); }
@@ -407,7 +426,7 @@ function bootPhaser() {
     syncObjects() {
       this.drawTerrain();
       const boxes = new Set(game.obstacles.map(o => o.id)); for (const [id, sprite] of this.boxes) if (!boxes.has(id)) { sprite.destroy(); this.boxes.delete(id); }
-      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } const markerY=box.kind==='drop'?GROUND-(floorAt(box.encounterAt-.001)??0):(box.baseY??GROUND);sprite.setPosition(box.x,markerY).setAlpha(box.hit ? .5 : 1); }
+      for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } const markerY=box.kind==='drop'?GROUND-(floorAt(box.encounterAt-.001,game)??0):(box.baseY??GROUND);sprite.setPosition(box.x,markerY).setAlpha(box.hit ? .5 : 1); }
       const treats = new Set(game.treats.map(t => t.id)); for (const [id, sprite] of this.treats) if (!treats.has(id)) { sprite.destroy(); this.treats.delete(id); }
       for (const treat of game.treats) { let sprite = this.treats.get(treat.id); if (!sprite) { sprite = this.add.image(treat.x, treat.y, treat.kind || 'fish').setDepth(6); this.treats.set(treat.id, sprite); } const pulse = reducedMotion.matches ? 1 : 1 + Math.sin(visualClock * 5 + treat.id) * .05; sprite.setPosition(treat.x, treat.y).setScale(pulse); if (treat.kind === 'star') sprite.setAngle(reducedMotion.matches ? 0 : Math.sin(visualClock * 3) * 9); }
     }
@@ -442,7 +461,7 @@ function bootPhaser() {
           if(game.reactionRemaining>0||game.status!=='running')break;
         }
         updateHUD();
-        if(game.status==='won'||(game.status==='finished'&&game.reactionRemaining<=0))finish();
+        if(game.status==='finished'&&game.reactionRemaining<=0)finish();
       }
       const hissing=game.reactionRemaining>0;
       const running=game.status==='running'&&!hissing, activePose=game.status==='running'||game.status==='paused';
@@ -477,8 +496,7 @@ function bootPhaser() {
       for (let i = 0; i < this.fireflies.length; i++) { const dot = this.fireflies[i]; dot.x = ((i * 137 + 40 - distance * .08) % (this.scale.width + 40) + this.scale.width + 40) % (this.scale.width + 40); dot.y = 90 + (i * 43) % 170 + (reducedMotion.matches ? 0 : Math.sin(visualClock * .8 + i) * 7); dot.setAlpha(.18 + (reducedMotion.matches ? .1 : Math.sin(visualClock * 1.5 + i) * .12 + .12)); }
       this.syncObjects();
       if (running && game.grounded && !rescuing && visualClock - this.lastFootstep > .16) { this.lastFootstep = visualClock; this.puff(CAT_X + 42, GROUND-game.y, 2, 0xc0c1a8); }
-      const gateX = CAT_X + 160 + (ROUND_SECONDS - game.elapsed) * MODES[game.mode].speed;
-      this.finishGate.setPosition(gateX, GROUND).setVisible(gateX < this.scale.width + 140);
+
     }
   }
   const host=$('scene');

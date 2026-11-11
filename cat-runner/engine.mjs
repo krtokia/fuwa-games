@@ -1,4 +1,6 @@
-// Pure, authored game rules. Renderers supply time; no random values or browser state.
+// Pure seeded game rules. Renderers supply time; no browser state.
+import { createCourse, ensureCourse, normalizeSeed, POTION_SECONDS } from './course.mjs';
+export { POTION_SECONDS } from './course.mjs';
 export const MODES = Object.freeze({
   gentle: { label: '천천히', speed: 240, gap: 2 },
   normal: { label: '달리기', speed: 360, gap: 2 },
@@ -6,7 +8,8 @@ export const MODES = Object.freeze({
 export function jumpCueSeconds(mode, obstacle) { return obstacle?.cueLead ?? .5; }
 // Seconds after the accepted first press. The HUD and route tests share this.
 export function secondJumpCueSeconds(mode, obstacle) { return obstacle?.secondCue ?? .18; }
-export const ROUND_SECONDS = 44;
+export const STARTING_SECONDS = 30;
+export const COLLISION_PENALTY_SECONDS = 5;
 export const GROUND = 338;
 export const CAT_X = 76;
 // Immediate launch, shorter ascent and stronger downward pull; holding has no effect.
@@ -30,66 +33,39 @@ export function flightAfter(y, vy, dt) {
 export const FIXED_STEP = 1 / 120;
 // A hit freezes the world. Only advanceReaction may run this separate clock.
 export const HIT_REACTION_SECONDS = .85;
-// Time-domain geometry keeps the same traversal/flight budget at both speeds.
-export const TERRAIN = Object.freeze([
-  { start: -10, end: 10, height: 0 },
-  { start: 10.70, end: 14, height: 0 },
-  { start: 14, end: 18, height: -54 },
-  { start: 18, end: 23, height: 0 },
-  { start: 23.70, end: 27, height: 0 },
-  { start: 27, end: 31, height: 48 },
-  { start: 31, end: 37, height: 0 },
-  { start: 37.70, end: 60, height: 0 },
-].map(Object.freeze));
-const TERRAIN_EDGES = Object.freeze([...new Set(TERRAIN.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b));
-const SHAPES = {
-  crate: { duration: .12, h: 30, taps: 1, hint: '낮은 상자! 점프 준비', cueLead: .5 },
-  long: { duration: .64, h: 32, taps: 2, hint: '긴 화분! 2단 점프 준비', cueLead: .5, secondCue: .18 },
-  // Its 95px clearance threshold exceeds the 77.44px single-jump apex.
-  // The early second cue leaves time to lift before the face, not above its middle.
-  high: { duration: .16, h: 105, taps: 2, hint: '높은 상자! 2단 점프 준비', cueLead: .81, secondCue: .14 },
-  gap: { duration: .70, h: 0, taps: 2, hint: '빈 바닥! 2단 점프 준비', cueLead: .5, secondCue: .18 },
-  step: { duration: .18, h: 54, taps: 1, hint: '높아지는 길! 점프 준비', cueLead: .5 },
-  drop: { duration: .18, h: 0, taps: 0, hint: '낮아지는 길, 사뿐!', cueLead: .5 },
-};
-export const ENCOUNTERS = Object.freeze([
-  [4,'crate'], [7,'long'], [10,'gap'], [14,'drop'], [18,'step'],
-  [20,'long'], [23,'gap'], [27,'step'], [31,'drop'], [33,'high'],
-  [37,'gap'], [40,'long'],
-].map(([encounterAt,kind],index)=>Object.freeze({encounterAt,kind,...SHAPES[kind],
-  w: SHAPES[kind].duration * MODES.normal.speed, tutorial: index < 5})));
-export const COURSE = Object.freeze(ENCOUNTERS.map(o=>o.encounterAt));
+// Only the bounded, currently generated terrain is retained.
 export function terrainSegments(game) {
   const speed=MODES[game.mode].speed;
-  return TERRAIN.map(s=>({...s,x:CAT_X+70+speed*(s.start-game.elapsed),
+  return game.course.terrain.map(s=>({...s,x:CAT_X+70+speed*(s.start-game.elapsed),
     w:speed*(s.end-s.start),baseY:GROUND-s.height}));
 }
-export function floorAt(time) {
-  return TERRAIN.find(s=>time>=s.start && time<s.end)?.height ?? null;
+export function floorAt(time,game) {
+  return game?.course.terrain.find(s=>time>=s.start && time<s.end)?.height ?? null;
 }
 export function nextCue(game) {
   return game.obstacles.find(o=>!o.hit&&!o.cleared&&o.encounterAt>=game.elapsed-.1) ?? null;
 }
-export const SEGMENTS = Object.freeze([
-  { id: 'welcome', name: '가볍게 시작해요', start: 0, end: 3 },
-  { id: 'practice', name: '하나씩 폴짝', start: 3, end: 13 },
-  { id: 'recovery-one', name: '잠깐 숨 고르기', start: 13, end: 15 },
-  { id: 'rhythm', name: '리듬을 타요', start: 15, end: 25 },
-  { id: 'recovery-two', name: '간식 산책', start: 25, end: 26.5 },
-  { id: 'flow', name: '사뿐사뿐', start: 26.5, end: 38 },
-  { id: 'finale', name: '마지막 두 번!', start: 38, end: 42 },
-  { id: 'finish', name: '도착이에요!', start: 42, end: ROUND_SECONDS },
-].map(Object.freeze));
-const SNACK_TIMES = [1.8, 2.5, 3.2, 14.6, 15.2, 25.4, 26, 35.4, 36, 42.3, 42.9];
-export function createGame(mode = 'normal', width = 720) {
+function horizonFor(game) {
+  return Math.max(2.4,(game.width+80-CAT_X-70)/MODES[game.mode].speed);
+}
+export function createGame(mode = 'normal', width = 720, options = {}) {
   if (typeof mode !== 'string' || !Object.hasOwn(MODES, mode)) mode = 'normal';
-  return { mode, width, status: 'ready', elapsed: 0, distance: 0, hearts: 3,
+  if (!Number.isFinite(width) || width<=0) width=720;
+  options=options&&typeof options==='object'?options:{};
+  const seed=normalizeSeed(options.seed);
+  const collisionPenaltySeconds=Number.isFinite(options.collisionPenaltySeconds)&&options.collisionPenaltySeconds>=0
+    ? options.collisionPenaltySeconds : COLLISION_PENALTY_SECONDS;
+  const game={ mode, width, seed, status: 'ready', elapsed: 0, distance: 0,
+    remainingTime:STARTING_SECONDS,collisionPenaltySeconds,potions:0,endReason:null,
     snacks: 0, stars: 0, score: 0, combo: 0, y: 0, vy: 0, grounded: true, floorHeight: 0, recoveryUntil: 0, invincible: 0,
     jumpHeld: false, jumpCount: 0, jumpStartedAt: null, lastJumpAt: null, lastBoostAt: null, pendingBoost: null,
     reactionElapsed: 0, reactionRemaining: 0,
     obstacles: [], treats: [], serial: 0, event: '', events: [], hitCount: 0,
-    cleared: 0, streak: 0, bestStreak: 0, segment: SEGMENTS[0], progress: 0,
-    courseIndex: 0, snackIndex: 0, accumulator: 0 };
+    cleared: 0, streak: 0, bestStreak: 0, segment: null, progress: 1,
+    course:createCourse(seed),courseIndex:0,pickupIndex:0,accumulator:0 };
+  ensureCourse(game.course,horizonFor(game)+6);
+  game.segment=game.course.chunks[0];
+  return game;
 }
 // Atomic tap API. It cannot bypass an existing physical held press.
 export function jump(game) {
@@ -132,21 +108,19 @@ export function overlaps(a, b) {
 function emit(game, type, details = {}) {
   game.events.push({ type, x: CAT_X + 66, y: GROUND - game.y - 30, ...details });
   // Terminal / hit feedback must not be hidden by a simultaneous snack or landing.
-  const priority = { recover: 4, fall: 4, land: 0, boost: 1, clear: 2, snack: 3, hit: 4, won: 5, finished: 5 };
+  const priority = { recover: 4, fall: 4, land: 0, boost: 1, clear: 2, snack: 3, potion: 3, hit: 4, finished: 5 };
   if (!game.event || priority[type] >= priority[game.event]) game.event = type;
 }
 function damage(game, details) {
   if (game.invincible > 0 || game.reactionRemaining > 0) return;
-  game.hearts = Math.max(0, game.hearts - 1);
+  game.remainingTime = Math.max(0, game.remainingTime - game.collisionPenaltySeconds);
+  game.progress=Math.min(1,game.remainingTime/STARTING_SECONDS);
   game.hitCount++;
   game.invincible = 2.2;
   game.reactionElapsed = 0;
   game.reactionRemaining = HIT_REACTION_SECONDS;
-  emit(game, 'hit', details);
-  if (game.hearts === 0) {
-    game.status = 'finished';
-    emit(game, 'finished');
-  }
+  emit(game, 'hit', {...details,seconds:game.collisionPenaltySeconds,remainingTime:game.remainingTime});
+  if (game.remainingTime === 0) finishRun(game,'collision');
 }
 // Foot support is at CAT_X+70; obstacle collision retains its forgiving body core.
 // Land only on a descending crossing of an existing horizontal surface.
@@ -160,17 +134,17 @@ function landingAfter(y, vy, floor) {
 }
 function advanceTerrain(game,dt) {
   const now=game.elapsed, previous=now-dt;
-  game.floorHeight=floorAt(now);
+  game.floorHeight=floorAt(now,game);
   if (now < game.recoveryUntil) {
     game.grounded=true; game.vy=0; game.jumpCount=0;
     return;
   }
   // Split at every terrain boundary. A walk-off begins at the real edge, and a
   // raised face is tested at its crossing, never at the later end of the tick.
-  const edges=TERRAIN_EDGES.filter(t=>t>previous&&t<=now);
+  const edges=(game.course.terrainEdges??[...new Set(game.course.terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b)).filter(t=>t>previous&&t<=now);
   let cursor=previous;
   for (const end of [...edges,...(edges.at(-1)===now?[]:[now])]) {
-    const floor=floorAt((cursor+end)/2);
+    const floor=floorAt((cursor+end)/2,game);
     if (!(game.grounded && floor===game.y && game.vy<=0)) {
       if (game.grounded) game.jumpCount=Math.max(1,game.jumpCount);
       game.grounded=false;
@@ -182,9 +156,9 @@ function advanceTerrain(game,dt) {
         emit(game,'land',{impactSpeed,at:cursor+landing});
       } else Object.assign(game,flightAfter(game.y,game.vy,duration));
     }
-    const nextFloor=floorAt(end);
+    const nextFloor=floorAt(end,game);
     if (nextFloor!==null && nextFloor>(floor??-Infinity) && game.y<nextFloor-1e-7) {
-      const safe=TERRAIN.find(s=>s.start===end);
+      const safe=game.course.terrain.find(s=>s.start===end);
       recover(game,'wall',safe);return;
     }
     if (game.grounded && nextFloor!==game.y) {
@@ -193,7 +167,7 @@ function advanceTerrain(game,dt) {
     cursor=end;
   }
   if(game.y < -160) {
-    const safe=TERRAIN.find(s=>s.start<=now && s.end>now) || TERRAIN.find(s=>s.start>now);
+    const safe=game.course.terrain.find(s=>s.start<=now && s.end>now) || game.course.terrain.find(s=>s.start>now);
     recover(game,'fall',safe);
   }
 }
@@ -204,37 +178,45 @@ function recover(game,reason,safe) {
   game.streak=0;game.combo=0;
   damage(game,{reason});
   // A short explicit rescue carries the cat to the approaching safe lip without
-  // advancing world time or letting one missed hole repeatedly drain hearts.
+  // advancing world time or letting one missed hole repeatedly drain time.
+  if (!safe) safe={height:0,start:game.elapsed};
   game.y=safe.height;game.vy=0;game.grounded=true;game.jumpCount=0;
   game.recoveryUntil=Math.max(game.elapsed+.12,safe.start+.04);
   game.floorHeight=safe.height;game.pendingBoost=null;
   emit(game,'recover',{reason,until:game.recoveryUntil});
 }
+function finishRun(game,reason) {
+  game.remainingTime=0;game.progress=0;game.status='finished';game.endReason=reason;
+  emit(game,'finished',{reason});
+}
 function tick(game, dt) {
-  game.elapsed = Math.min(ROUND_SECONDS, game.elapsed + dt);
+  // Time and distance both stop at the exact remaining lifetime, never at a
+  // hidden course length. A pickup after expiry cannot revive the run.
+  dt=Math.min(dt,game.remainingTime);
+  game.elapsed += dt;
+  game.remainingTime=Math.max(0,game.remainingTime-dt);
   const speed = MODES[game.mode].speed;
   game.distance = speed * game.elapsed;
-  game.progress = game.elapsed / ROUND_SECONDS;
-  game.segment = SEGMENTS.find(s => game.elapsed < s.end) || SEGMENTS.at(-1);
+  game.progress = Math.min(1,game.remainingTime/STARTING_SECONDS);
+  const horizon=horizonFor(game);
+  ensureCourse(game.course,game.elapsed+horizon+6,game.elapsed-3);
+  game.segment=game.course.chunks.find(chunk=>game.elapsed>=chunk.start&&game.elapsed<chunk.end)??game.course.chunks.at(-1);
   game.invincible = Math.max(0, game.invincible - dt);
   if (game.pendingBoost) {
     emit(game, 'boost', game.pendingBoost);
     game.pendingBoost = null;
   }
+  if(game.remainingTime<=1e-9) { finishRun(game,'timeout');return; }
   advanceTerrain(game, dt);
-  if (game.status !== 'running') return;
-  // Each authored encounter is when an obstacle's left edge reaches CAT_X + 70.
-  // Encounter positions and timing never depend on the viewport. Wider screens
-  // simply activate distant actors sooner, outside their visible right edge.
-  const horizon = Math.max(2.4, (game.width + 80 - CAT_X - 70) / speed);
-  while (game.courseIndex < COURSE.length && COURSE[game.courseIndex] - game.elapsed <= horizon) {
-    const encounter = ENCOUNTERS[game.courseIndex++];
+  if (game.status !== 'running' || game.reactionRemaining>0) return;
+  for(const encounter of game.course.encounters) {
+    if(encounter.index<game.courseIndex) continue;
+    if(encounter.encounterAt-game.elapsed>horizon) break;
+    game.courseIndex=encounter.index+1;
     const { encounterAt } = encounter;
-    const floorHeight = floorAt(encounterAt + .001) ?? floorAt(encounterAt - .001) ?? 0;
+    const floorHeight = floorAt(encounterAt + .001,game) ?? floorAt(encounterAt - .001,game) ?? 0;
     const x = CAT_X + 70 + speed * (encounterAt - game.elapsed);
-    game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++, encounterAt });
-    // Rewards follow the traversed arc, not the leading edge. Double-jump
-    // stars stay beyond a single low arc; high-stack rewards also sit above it.
+    game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++ });
     for (let i = 0; i < 3; i++) {
       const offset = encounter.taps === 2
         ? encounter.duration * speed * [.15, .5, .75][i]
@@ -243,17 +225,21 @@ function tick(game, dt) {
         : encounter.taps === 2 ? [125,180,160][i]
         : encounter.taps === 0 ? 35 : 80 + (i === 1 ? 20 : 0);
       const rewardFloor = encounter.taps === 0
-        ? floorAt(encounterAt + offset / speed) ?? floorHeight : floorHeight;
+        ? floorAt(encounterAt + offset / speed,game) ?? floorHeight : floorHeight;
       game.treats.push({ x: x + offset, y: GROUND - rewardFloor - height,
         kind: encounter.taps === 2 && i === 1 ? 'star' : 'fish',
         value: encounter.taps === 2 && i === 1 ? 50 : 10,
         taken: false, id: game.serial++, encounterAt, offset });
     }
   }
-  while (game.snackIndex < SNACK_TIMES.length && SNACK_TIMES[game.snackIndex] - game.elapsed <= horizon) {
-    const encounterAt = SNACK_TIMES[game.snackIndex++];
+  for(const pickup of game.course.pickups) {
+    if(pickup.index<game.pickupIndex) continue;
+    if(pickup.encounterAt-game.elapsed>horizon) break;
+    game.pickupIndex=pickup.index+1;
+    const {encounterAt,kind,value,patternId,chunkIndex}=pickup;
     game.treats.push({ x: CAT_X + 70 + speed * (encounterAt - game.elapsed),
-      y: GROUND - (floorAt(encounterAt) ?? 0) - 35, kind: 'fish', value: 10, taken: false, id: game.serial++, encounterAt, offset: 0 });
+      y: GROUND - (floorAt(encounterAt,game) ?? 0) - pickup.height,
+      kind,value,patternId,chunkIndex,taken:false,id:game.serial++,encounterAt,offset:0 });
   }
   const cat = catBounds(game);
   for (const obstacle of game.obstacles) {
@@ -268,7 +254,7 @@ function tick(game, dt) {
       obstacle.hit = true;
       game.streak = 0; game.combo = 0;
       damage(game, { id: obstacle.id, x: obstacle.x + 22, y: GROUND - 22 });
-      if (game.status === 'finished') return;
+      if (game.reactionRemaining > 0 || game.status === 'finished') return;
     }
     if (!obstacle.cleared && obstacle.x + obstacle.w <= cat.x) {
       obstacle.cleared = true;
@@ -286,8 +272,15 @@ function tick(game, dt) {
     treat.x = Number.isFinite(treat.encounterAt)
       ? CAT_X + 70 + speed * (treat.encounterAt - game.elapsed) + treat.offset : treat.x - speed * dt;
     if (!treat.taken && overlaps(cat, { x: treat.x - 17, y: treat.y - 15, w: 34, h: 30 })) {
-      treat.taken = true; game.snacks++;
+      treat.taken = true;
       const kind = treat.kind || 'fish';
+      if(kind==='potion') {
+        game.potions++;game.remainingTime+=POTION_SECONDS;
+        game.progress=Math.min(1,game.remainingTime/STARTING_SECONDS);
+        emit(game,'potion',{id:treat.id,x:treat.x,y:treat.y,kind,seconds:POTION_SECONDS,value:POTION_SECONDS,remainingTime:game.remainingTime});
+        continue;
+      }
+      game.snacks++;
       const value = treat.value ?? 10;
       if (kind === 'star') game.stars++;
       game.score += value;
@@ -296,11 +289,7 @@ function tick(game, dt) {
   }
   game.obstacles = game.obstacles.filter(o => o.x + o.w > -80);
   game.treats = game.treats.filter(t => t.x > -60 && !t.taken);
-  if (game.elapsed >= ROUND_SECONDS - 1e-9 && game.reactionRemaining <= 0) {
-    game.elapsed = ROUND_SECONDS; game.progress = 1;
-    game.distance = speed * ROUND_SECONDS;
-    game.status = 'won'; emit(game, 'won');
-  }
+
 }
 export function step(game, rawDt) {
   // Frozen/paused/terminal states keep even their last frame's event list.
@@ -319,7 +308,7 @@ export function step(game, rawDt) {
     }
   }
 }
-// Explicit presentation-time API, including a last-heart reaction while finished.
+// Explicit presentation-time API, including a final time-penalty reaction.
 // Manual pause blocks this clock too. Completion never advances or revives a world.
 // True is returned exactly once, on the call that completes an active reaction.
 export function advanceReaction(game, rawDt) {

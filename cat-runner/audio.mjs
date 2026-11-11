@@ -137,6 +137,7 @@ export class RunnerAudio {
     if (type === 'jump') this.tone(300, now, .13, .07, 'sine', 640);
     if (type === 'boost') { this.tone(490, now, .17, .055, 'triangle', 1100); this.tone(740, now + .04, .12, .035, 'sine', 1480); }
     if (type === 'collect') { const f = hz(84 + Math.min(7, Math.max(0, combo))); this.tone(f, now, .12, .055); this.tone(f * 1.5, now + .055, .16, .035); }
+    if (type === 'potion') [76,83,88].forEach((n,i)=>this.tone(hz(n),now+i*.07,.22,.045,'sine'));
     if (type === 'hit') this.hiss(now);
     if (type === 'finish') [72,76,79,84].forEach((n,i) => this.tone(hz(n), now + i * .11, .3, .045, 'triangle'));
   }
