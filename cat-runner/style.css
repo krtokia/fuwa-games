@@ -153,3 +153,17 @@ h1{font-size:26px}
 .progress.low-time span{background:#ee9d84}
 .seed-note{font-size:11px!important;color:#677769;overflow-wrap:anywhere}
 #seed-label{font-variant-numeric:tabular-nums;letter-spacing:.04em}
+
+/* A four-digit score must not squeeze labels together on phone-width screens. */
+@media(max-width:420px){
+.dashboard{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px;gap:8px 12px}
+.dashboard>.score-stat{grid-column:1;grid-row:1}
+.dashboard>.stat:nth-child(2){grid-column:2;grid-row:1}
+.dashboard>.treat-stat{grid-column:1;grid-row:2}
+.dashboard>.potion-stat{grid-column:2;grid-row:2}
+.dashboard>.pause-button{grid-column:3;grid-row:1 / span 2;align-self:center}
+.dashboard .stat-label{white-space:nowrap;font-size:10px}
+.dashboard .treat-stat,.dashboard .potion-stat{flex-direction:row;align-items:center;gap:7px}
+.dashboard .treat-stat .stat-label,.dashboard .potion-stat .stat-label{font-size:9px}
+.dashboard .treat-stat strong,.dashboard .potion-stat strong{font-size:17px}
+}

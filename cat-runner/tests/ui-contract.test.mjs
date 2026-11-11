@@ -126,3 +126,12 @@ test('time potions have a distinct local bottle, seconds label, sound and tutori
  assert(game.includes('시간 포션 +${event.seconds}초'));
  assert(html.includes('시간 포션'));
 });
+
+test('phone-width HUD gives score/time and pickups separate rows without shrinking the pause target',()=>{
+ const css=readFileSync(file('style.css'),'utf8');
+ assert(css.includes('@media(max-width:420px)'));
+ assert(css.includes('grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px'));
+ assert(css.includes('.dashboard>.treat-stat{grid-column:1;grid-row:2}'));
+ assert(css.includes('.dashboard>.potion-stat{grid-column:2;grid-row:2}'));
+ assert(css.includes('.dashboard .stat-label{white-space:nowrap'));
+});
