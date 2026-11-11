@@ -109,7 +109,7 @@ test('time survival removes hearts, the fixed finish gate, and old course-comple
   assert(!/finishGate|garden-gate|game.status\s*===?\s*['"]won/.test(source));
  }
  assert(!html.includes('id="hearts"'));assert(html.includes('id="potions"'));
- assert(game.includes('score_v10_'));assert(!game.includes('score_v9_'));
+ assert(game.includes('score_v11_'));assert(!game.includes('score_v10_'));assert(!game.includes('score_v9_'));
 });
 
 test('seeded retry and a distinct new-course action are exposed to the player',()=>{
@@ -134,4 +134,17 @@ test('phone-width HUD gives score/time and pickups separate rows without shrinki
  assert(css.includes('.dashboard>.treat-stat{grid-column:1;grid-row:2}'));
  assert(css.includes('.dashboard>.potion-stat{grid-column:2;grid-row:2}'));
  assert(css.includes('.dashboard .stat-label{white-space:nowrap'));
+});
+
+test('reward tutorial and mint bonus art explicitly mark the optional branch',()=>{
+ assert(html.includes('생선은 이동 경로 · 민트 별은 선택 도전'));
+ assert(game.includes("make('bonus-star', 52, 52"));
+ assert(game.includes("treat.optional?'bonus-star':treat.kind||'fish'"));
+ assert(game.includes('민트 별은 선택 도전이에요'));assert(game.includes('별길은 선택! 한 번 더 톡'));
+ assert(game.indexOf("else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue)")<game.indexOf('else if(bonusFlight&&game.jumpCount===1'));
+});
+
+test('offline build includes the shared physics and trajectory-based reward modules',()=>{
+ const build=readFileSync(file('scripts/build-standalone.py'),'utf8');
+ assert(build.includes("inline_module('physics.mjs')"));assert(build.includes("inline_module('rewards.mjs')"));
 });

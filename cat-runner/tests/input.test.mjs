@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const source=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8').replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm,'').replace(/^export\s+\{[^}]+\}\s+from[^;]+;\n/gm,'').replaceAll('export ','');
 const course=source('course.mjs');
+const physics=source('physics.mjs');
+const rewards=source('rewards.mjs');
 const engine=source('engine.mjs');
 const animation=readFileSync(new URL('../animation.mjs',import.meta.url),'utf8').replaceAll('export ','');
 const controller=readFileSync(new URL('../game.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
@@ -27,7 +29,7 @@ function setup(saved = null, { query = '?seed=10ddcafe' } = {}) {
  const window=Object.assign(new Element('window'),{crypto,location});
  class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type){this.calls.push(['play',type]);}}
  const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(){}},matchMedia:()=>({matches:false}),crypto,location,URL,URLSearchParams,console};
- vm.createContext(sandbox);vm.runInContext(course+'\n'+engine+'\n'+animation+'\n'+controller,sandbox);
+ vm.createContext(sandbox);vm.runInContext(course+'\n'+physics+'\n'+rewards+'\n'+engine+'\n'+animation+'\n'+controller,sandbox);
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},boostEffect(){},puff(){},landEffect(){},collectEffect(){},potionEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};
@@ -40,6 +42,7 @@ function atPattern(ui,id,{lead=.5,response=.14}={}) {
   const chunk=instantiatePattern(${JSON.stringify(id)},0,0);
   chunk.encounters.forEach((o,i)=>o.index=i);
   game.course.chunks=[chunk];game.course.encounters=chunk.encounters;game.course.terrain=chunk.terrain;game.course.pickups=[];
+  game.course.terrainEdges=[...new Set(chunk.terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b);
   game.course.generatedUntil=1000;game.courseIndex=0;game.pickupIndex=0;
   game.elapsed=chunk.encounters[0].encounterAt-${lead}+${response};
   game.y=floorAt(game.elapsed,game);game.floorHeight=game.y;game.vy=0;game.grounded=true;game.jumpCount=0;
@@ -135,11 +138,11 @@ test('high-stack cue starts early and waits for a separate second tap',()=>{
  assert.equal(ui.game.hitCount,0);assert.equal(ui.game.grounded,true);
 });
 
-test('results keep timer-mode records separate from the old fixed course',()=>{
- const ui=setup({score_v9_normal:99999});ui.run("game.status='finished';game.remainingTime=0;game.score=123;finish();");
+test('new route scores remain separate from older timer and fixed-course records',()=>{
+ const ui=setup({score_v9_normal:99999,score_v10_normal:88888});ui.run("game.status='finished';game.remainingTime=0;game.score=123;finish();");
  assert.equal(ui.el('jump').disabled,true);assert.equal(ui.el('pause').disabled,true);
  assert.equal(ui.game.status,'finished');assert.equal(ui.el('result-title').textContent,'오늘은 여기까지!');
- assert.equal(ui.run('saved.score_v10_normal'),123);assert.equal(ui.run('saved.score_v9_normal'),99999);
+ assert.equal(ui.run('saved.score_v11_normal'),123);assert.equal(ui.run('saved.score_v10_normal'),88888);assert.equal(ui.run('saved.score_v9_normal'),99999);
  assert.match(ui.el('record').textContent,/123점/);
  ui.el('again').emit('click');assert.equal(ui.game.hitCount,0);assert.equal(ui.game.remainingTime,30);
  assert.equal(ui.run('pausedStatus'),null);assert.equal(ui.game.reactionRemaining,0);
@@ -153,7 +156,7 @@ function renderedUI(mode='normal') {
  const definition=controller.slice(controller.indexOf('class RunnerScene'),controller.indexOf('\n  const host='));
  ui.run('globalThis.Phaser={Scene:class{}};globalThis.TestScene='+definition+';');
  ui.run(`
- const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAlpha')o.alpha=v[0];if(k==='setVisible')o.visible=v[0];if(k==='destroy')o.destroyed=true;return n.proxy;}});};
+ const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAlpha')o.alpha=v[0];if(k==='setScale')o.drawScale=v[0];if(k==='lineBetween')(o.lines??=[]).push(v);if(k==='add')(o.children??=[]).push(...v.flat());if(k==='setVisible')o.visible=v[0];if(k==='destroy')o.destroyed=true;return n.proxy;}});};
  const drawNode=()=>{const n=node();n.proxy=n;return n;};
  scene=new TestScene();scene.scale={width:720,height:420};scene.cameraTop=0;
  for(const name of ['cat','shadow','ring','rescue','backdrop','hissLabel','boostRing'])scene[name]=drawNode();
@@ -379,4 +382,73 @@ test('a potion-extended run remains playable past the retired 44-second finish',
  assert.equal(ui.el('time').textContent,'12초');assert.equal(ui.el('progress').attributes['aria-valuenow'],'12');
  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.jumpCount,1);assert(ui.game.vy>0);
  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='finish').length"),0);
+});
+
+test('optional star cue follows an accepted low-box jump and can be ignored safely',()=>{
+ for(const mode of ['normal','gentle'])for(const takeBonus of [false,true]){
+  const ui=setup({mode,paceVersion:4});atPattern(ui,'low-lane',{response:.15});ui.tick(.01);
+  ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+  assert.equal(ui.el('hint').textContent,'민트 별은 선택 도전이에요');
+  ui.tick(ui.run('BONUS_SECOND_CUE_SECONDS')+.01);ui.refresh();
+  assert.equal(ui.el('hint').textContent,'별길은 선택! 한 번 더 톡');
+  if(takeBonus){ui.tick(.15);ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.game.jumpCount,2);assert.equal(ui.el('hint').textContent,'사뿐히 착지해요');}
+  ui.tick(1.2);ui.refresh();assert.equal(ui.game.hitCount,0);assert.equal(ui.game.grounded,true);
+  assert.equal(ui.game.stars,takeBonus?2:0);assert.equal(ui.game.snacks,takeBonus?5:3);
+  assert(!ui.el('hint').textContent.includes('선택'));
+ }
+});
+
+test('required second-jump cue takes precedence over optional reward guidance',()=>{
+ const ui=setup();atPattern(ui,'high-stack',{lead:.81,response:.15});ui.tick(.01);
+ // Both flags are deliberately present to lock down the priority branch.
+ ui.run('game.obstacles[0].bonusSecondCue=BONUS_SECOND_CUE_SECONDS;');
+ ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ assert.equal(ui.el('hint').textContent,'조금 더 날아가요…');
+ ui.tick(ui.run('BONUS_SECOND_CUE_SECONDS')+.01);ui.refresh();
+ assert.equal(ui.el('hint').textContent,'지금 한 번 더 톡! ↑↑');
+ assert(!ui.el('hint').textContent.includes('선택'));
+});
+
+test('an unrelated early jump never acquires the low-box bonus prompt',()=>{
+ const ui=setup();atPattern(ui,'low-lane',{lead:1.25,response:0});ui.tick(.01);
+ ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+ ui.tick(ui.run('BONUS_SECOND_CUE_SECONDS')+.01);ui.refresh();
+ assert.equal(ui.game.jumpCount,1);assert(!ui.el('hint').textContent.includes('선택'));
+});
+
+test('scene distinguishes optional stars without moving any pickup off its planned route',()=>{
+ const ui=renderedUI();
+ ui.run(`game.treats=[
+  {id:801,x:300,y:140,kind:'fish',optional:false},
+  {id:802,x:350,y:150,kind:'star',optional:false},
+  {id:803,x:400,y:100,kind:'star',optional:true},
+  {id:804,x:450,y:300,kind:'potion',optional:false}
+ ];scene.syncObjects();`);
+ for(const [id,texture,x,y,size]of[[801,'fish',300,140,.8],[802,'star',350,150,.85],[803,'bonus-star',400,100,.85],[804,'potion',450,300,1]]){
+  assert.equal(ui.run(`scene.treats.get(${id}).texture`),texture);assert.equal(ui.run(`scene.treats.get(${id}).x`),x);assert.equal(ui.run(`scene.treats.get(${id}).y`),y);
+  assert(Math.abs(ui.run(`scene.treats.get(${id}).drawScale`)-size)<=size*.035+1e-12);
+ }
+ ui.run('globalThis.oldBonus=scene.treats.get(803);');const seed=ui.game.seed;
+ ui.el('again').emit('click');assert.equal(ui.game.seed,seed);assert.equal(ui.run('oldBonus.destroyed'),true);assert.equal(ui.run('scene.treats.size'),0);
+ assert.equal(ui.game.stars,0);assert.equal(ui.game.jumpStartedAt,null);assert(!ui.el('hint').textContent.includes('선택'));
+});
+
+test('lower gap landing flag follows its real floor instead of an imaginary level lip',()=>{
+ for(const mode of ['normal','gentle']){
+  const ui=renderedUI(mode);atPattern(ui,'sunken-gap');ui.frame();
+  const edges=JSON.parse(ui.run("JSON.stringify(scene.boxes.get(game.obstacles.find(o=>o.kind==='gap').id).children[0].lines)"));
+  const width=.70*ui.run('MODES[game.mode].speed');
+  assert(edges.some(([x1,y1,x2,y2])=>x1===0&&x2===0&&y1===-26&&y2===-4));
+  assert(edges.some(([x1,y1,x2,y2])=>Math.abs(x1-width)<1e-9&&Math.abs(x2-width)<1e-9&&y1===6&&y2===28));
+ }
+});
+
+test('an urgent next step or drop cannot be hidden by the optional star cue',()=>{
+ for(const kind of ['step','drop']){
+  const ui=setup();atPattern(ui,'low-lane',{response:.15});ui.tick(.01);
+  ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);
+  ui.tick(ui.run('BONUS_SECOND_CUE_SECONDS')+.01);
+  ui.run(`game.obstacles[0].cleared=true;game.obstacles.push({...SHAPES[${JSON.stringify(kind)}],kind:${JSON.stringify(kind)},encounterAt:game.elapsed+.2,x:CAT_X+70+MODES[game.mode].speed*.2,hit:false,cleared:false});game.obstacles.sort((a,b)=>a.encounterAt-b.encounterAt);`);
+  ui.refresh();assert.equal(ui.el('hint').textContent,kind==='drop'?'낮아지는 길, 그대로 가요':'지금 톡! ↑');
+ }
 });

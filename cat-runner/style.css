@@ -167,3 +167,5 @@ h1{font-size:26px}
 .dashboard .treat-stat .stat-label,.dashboard .potion-stat .stat-label{font-size:9px}
 .dashboard .treat-stat strong,.dashboard .potion-stat strong{font-size:17px}
 }
+
+.route-note{font-size:11px;color:#496e5d;margin:-3px 0 8px;font-weight:650}

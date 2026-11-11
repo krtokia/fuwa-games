@@ -11,11 +11,11 @@ export const SHAPES = Object.freeze(Object.fromEntries(Object.entries({
   drop: { duration: .18, h: 0, taps: 0, hint: '낮아지는 길, 사뿐!', cueLead: .5 },
 }).map(([kind,shape])=>[kind,Object.freeze(shape)])));
 const flat = [[0,6,0]];
-// Every exit has at least 1.1 seconds of flat ground. A potion belongs to the
+// Every exit has at least 1.35 seconds of baseline ground. A potion belongs to the
 // selected pattern's safe exit slot, after landing, rather than a timer spawner.
 export const PATTERNS = Object.freeze([
   { id:'welcome', name:'가볍게 시작해요', difficulty:1, encounters:[[4,'crate']], terrain:flat },
-  { id:'low-lane', name:'상자 사이 폴짝', difficulty:1, encounters:[[1.4,'crate'],[3.6,'crate']], terrain:flat },
+  { id:'low-lane', name:'상자 사이 폴짝', difficulty:1, encounters:[[1.4,'crate',{bonusRoute:true,bonusSecondCue:.35}],[3.6,'crate',{bonusRoute:true,bonusSecondCue:.35}]], terrain:flat },
   { id:'long-garden', name:'긴 화분 너머', difficulty:2, encounters:[[1.4,'long'],[3.6,'crate']], terrain:flat },
   { id:'gap-hop', name:'빈 바닥을 훌쩍', difficulty:2, encounters:[[1.4,'gap'],[3.6,'crate']], terrain:[[0,1.4,0],[2.1,6,0]] },
   { id:'rise-lane', name:'올라갔다 사뿐히', difficulty:2, encounters:[[1.4,'step'],[3.6,'drop']], terrain:[[0,1.4,0],[1.4,3.6,48],[3.6,6,0]] },
@@ -23,8 +23,16 @@ export const PATTERNS = Object.freeze([
   { id:'high-stack', name:'높은 상자 훌쩍', difficulty:3, encounters:[[1.4,'high'],[3.6,'crate']], terrain:flat },
   { id:'gap-and-long', name:'두 번씩 리듬 타요', difficulty:3, encounters:[[1.4,'gap'],[3.6,'long']], terrain:[[0,1.4,0],[2.1,6,0]] },
   { id:'high-and-gap', name:'높이 멀리 날아요', difficulty:4, encounters:[[1.4,'high'],[3.6,'gap']], terrain:[[0,3.6,0],[4.3,6,0]] },
+  // More shape, not more speed: each still asks for only two ground jumps.
+  // Drops are automatic rests, and raised obstacles sit fully on their terrace.
+  { id:'terrace-crate', name:'툇마루 위 상자', difficulty:2, encounters:[[1.4,'step'],[2.95,'crate'],[4.5,'drop']], terrain:[[0,1.4,0],[1.4,4.5,40],[4.5,6,0]] },
+  { id:'valley-long', name:'낮은 정원의 화분', difficulty:3, encounters:[[1.15,'drop'],[2.4,'long'],[4.65,'step']], terrain:[[0,1.15,0],[1.15,4.65,-36],[4.65,6,0]] },
+  { id:'stair-rise', name:'두 계단을 사뿐히', difficulty:2, encounters:[[1.4,'step'],[2.9,'step'],[4.35,'drop']], terrain:[[0,1.4,0],[1.4,2.9,28],[2.9,4.35,56],[4.35,6,0]] },
+  { id:'raised-gap', name:'툇마루 사이 훌쩍', difficulty:3, encounters:[[1.4,'step'],[3.15,'gap'],[4.65,'drop']], terrain:[[0,1.4,0],[1.4,3.15,36],[3.85,4.65,36],[4.65,6,0]] },
+  { id:'sunken-gap', name:'아래 골목으로 훌쩍', difficulty:2, encounters:[[1.55,'gap'],[3.9,'step']], terrain:[[0,1.55,0],[2.25,3.9,-32],[3.9,6,0]] },
 ].map(pattern=>Object.freeze({...pattern,
-  encounters:Object.freeze(pattern.encounters.map(Object.freeze)),
+  encounters:Object.freeze(pattern.encounters.map(([at,kind,options])=>Object.freeze(
+    options?[at,kind,Object.freeze(options)]:[at,kind]))),
   terrain:Object.freeze(pattern.terrain.map(Object.freeze)),
   potionSlot:Object.freeze([5.35,5.65]),
 })));
@@ -48,9 +56,12 @@ export function instantiatePattern(id,start=0,index=0) {
   if (!pattern) throw new RangeError(`Unknown runner pattern: ${id}`);
   return { id:pattern.id, name:pattern.name, difficulty:pattern.difficulty,
     index,start,end:start+CHUNK_SECONDS,
-    encounters:pattern.encounters.map(([at,kind],i)=>({ ...SHAPES[kind],
+    encounters:pattern.encounters.map(([at,kind,options],i)=>({ ...SHAPES[kind],...options,
       kind,encounterAt:start+at,patternId:id,chunkIndex:index,localIndex:i,
-      ...(kind==='step'&&id==='rise-lane'?{h:48}:{}),tutorial:index<2 })),
+      // The cue's visible rise must match the actual adjoining surfaces, even
+      // when a step begins below baseline or follows an earlier raised step.
+      ...(kind==='step'?{h:pattern.terrain.find(([a,b])=>a<=at&&at<b)[2]
+        -pattern.terrain.find(([a,b])=>a<at&&at<=b)[2]}:{}),tutorial:index<2 })),
     terrain:pattern.terrain.map(([a,b,height])=>({start:start+a,end:start+b,height})),
     pickups:[],potionSlot:pattern.potionSlot.map(at=>at+start) };
 }

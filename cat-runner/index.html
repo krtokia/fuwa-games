@@ -14,11 +14,11 @@
 <main>
   <header class="page-header">
     <a class="back-link" href="../" aria-label="후와 게임 목록으로">← 후와 게임</a>
-    <span class="prototype">플레이 시제품 · v0.10</span>
+    <span class="prototype">플레이 시제품 · v0.11</span>
   </header>
   <section class="heading" aria-labelledby="page-title">
     <div><p class="eyebrow">MOONLIGHT RUN · REMIX</p><h1 id="page-title">후와 달리기<span class="title-star" aria-hidden="true">✦</span></h1></div>
-    <p class="intro-copy">매번 달라지는 달빛 골목<br>포션을 모아, 조금 더 멀리 달려요.</p>
+    <p class="intro-copy">계단과 툇마루를 잇는 달빛 골목<br>생선을 따라 뛰고, 별길에 도전해요.</p>
   </section>
   <section class="game-shell" aria-label="후와 달리기 게임">
     <div class="dashboard">
@@ -39,6 +39,7 @@
           <img class="portrait" src="./assets/fuwa-generated.png" width="180" height="122" alt="풍성한 회색 털과 연두빛 눈을 가진 후와">
           <h2>오늘 밤, 후와와 달려요</h2>
           <p class="instructions"><b>한 번 톡</b> 누르면 낮게,<br><b>공중에서 한 번 더 톡</b> 하면 높이, 멀리 점프!</p>
+          <p class="route-note">생선은 이동 경로 · 민트 별은 선택 도전</p>
           <fieldset class="speed-picker"><legend>달리는 속도</legend><label><input type="radio" name="mode" value="gentle"><span>천천히</span></label><label><input type="radio" name="mode" value="normal" checked><span>달리기</span></label></fieldset>
           <button class="primary" id="start" type="button" disabled>그림 불러오는 중 <span aria-hidden="true">→</span></button>
           <p class="card-note">30초 시작 · 포션 +10초 · 충돌 -5초</p>
@@ -69,7 +70,7 @@
     </div>
   </section>
   <div class="below-game"><p><span aria-hidden="true">⌨</span> 컴퓨터에서는 <b>스페이스</b> 또는 <b>↑</b>도 톡, 한 번 더 톡</p><button class="sound-button" id="sound" type="button" aria-pressed="false">소리 꺼짐</button></div>
-  <p class="prototype-note">검증한 짧은 구간들을 조합하는 랜덤 코스예요. 길 번호가 같으면 배치도 같아요. 후와를 참고한 생성 그림을 사용하며, 움직임과 난이도를 계속 다듬고 있어요.</p>
+  <p class="prototype-note">계단·높은 길·낮은 길을 잇는 랜덤 코스예요. 이 버전에서 길 번호가 같으면 배치도 같아요. 후와를 참고한 생성 그림을 사용하며, 움직임과 난이도를 계속 다듬고 있어요.</p>
   <p class="sr-only" id="announcement" role="status" aria-live="polite"></p>
   <noscript><p class="error-note">게임을 하려면 브라우저에서 JavaScript를 켜 주세요.</p></noscript>
 </main>

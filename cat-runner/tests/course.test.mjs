@@ -33,12 +33,16 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
  return {g,events,maxChunks,maxTerrain,maxObstacles,maxTreats,minRunway};
 }
 
-test('authored patterns return to a safe baseline with readable entry, landing and potion margins',()=>{
- assert(PATTERNS.length>=8);
- for(const p of PATTERNS){const chunk=instantiatePattern(p.id);assert.equal(chunk.end,CHUNK_SECONDS);assert.equal(chunk.terrain[0].start,0);assert.equal(chunk.terrain[0].height,0);assert.equal(chunk.terrain.at(-1).end,6);assert.equal(chunk.terrain.at(-1).height,0);assert(chunk.terrain.at(-1).start<=4.3);
-  assert(chunk.encounters[0].encounterAt>=1.4);assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
-  for(let i=1;i<chunk.encounters.length;i++){const a=chunk.encounters[i-1],b=chunk.encounters[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>.7);}
-  const last=chunk.encounters.at(-1);assert(chunk.potionSlot[0]-last.encounterAt>1.3);
+test('authored patterns return to baseline with readable entries and safe potion exits',()=>{
+ assert.equal(PATTERNS.length,14);
+ for(const p of PATTERNS){const chunk=instantiatePattern(p.id);assert.equal(chunk.end,CHUNK_SECONDS);assert.equal(chunk.terrain[0].start,0);assert.equal(chunk.terrain[0].height,0);assert.equal(chunk.terrain.at(-1).end,6);assert.equal(chunk.terrain.at(-1).height,0);assert(chunk.terrain.at(-1).start<=4.65);
+  // An automatic drop may precede the first jump; no active cue is rushed.
+  assert(chunk.encounters[0].encounterAt>=1.15);assert(chunk.encounters.find(o=>o.taps).encounterAt>=1.4);
+  assert(chunk.encounters.filter(o=>o.taps).length<=2);assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
+  const active=chunk.encounters.filter(o=>o.taps);
+  for(let i=1;i<active.length;i++){const a=active[i-1],b=active[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>.7,p.id);}
+  // Full ballistic landing-to-cue / pickup margins are tested in patterns.test.
+  assert(chunk.potionSlot[0]-chunk.terrain.at(-1).start>=.7-1e-10,p.id);
  }
 });
 test('same seed reproduces patterns, terrain and potion positions independent of generation batches',()=>{
@@ -89,6 +93,7 @@ test('no-input runs end without endless falls, even with reachable exit potions'
  for(let seed=0;seed<32;seed++){const g=createGame('normal',720,{seed});g.status='running';let frames=0;while(g.status==='running'||g.reactionRemaining>0){if(g.reactionRemaining>0)advanceReaction(g,1/60);else step(g,1/60);assert(++frames<150*60);}assert.equal(g.status,'finished');assert.equal(g.remainingTime,0);assert(g.hitCount>0);assert(g.elapsed<60);}
 });
 test('streaming generation and runtime actors stay bounded in a ten-minute stress run',()=>{
- const result=route({seed:0x1234abcd,hz:30,width:1200,until:600,extend:true});assert.equal(result.g.hitCount,0);assert.equal(result.g.status,'running');assert(result.maxChunks<=5);assert(result.maxTerrain<=15);assert(result.maxObstacles<=8);assert(result.maxTreats<=24);
- const c=createCourse(8);for(let t=0;t<=86400;t+=3){ensureCourse(c,t+12,t-3);assert(c.chunks.length<=4);assert(c.encounters.length<=8);assert(c.terrain.length<=12);assert(c.pickups.length<=8);}assert.equal(c.nextChunkIndex,14402);
+ const maxTerrainPerChunk=Math.max(...PATTERNS.map(p=>p.terrain.length)),maxEncountersPerChunk=Math.max(...PATTERNS.map(p=>p.encounters.length));
+ const result=route({seed:0x1234abcd,hz:30,width:1200,until:600,extend:true});assert.equal(result.g.hitCount,0);assert.equal(result.g.status,'running');assert(result.maxChunks<=5);assert(result.maxTerrain<=5*maxTerrainPerChunk);assert(result.maxObstacles<=10);assert(result.maxTreats<=30);
+ const c=createCourse(8);for(let t=0;t<=86400;t+=3){ensureCourse(c,t+12,t-3);assert(c.chunks.length<=4);assert(c.encounters.length<=4*maxEncountersPerChunk);assert(c.terrain.length<=4*maxTerrainPerChunk);assert(c.pickups.length<=8);}assert.equal(c.nextChunkIndex,14402);
 });

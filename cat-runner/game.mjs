@@ -109,7 +109,7 @@ function finish() {
   endJump();
   $('pause').disabled = $('jump').disabled = true;
   $('hint').classList.remove('visible'); $('course-toast').classList.remove('visible');
-  const key = `score_v10_${game.mode}`;
+  const key = `score_v11_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
   $('result-kicker').textContent = '달빛 골목 · 시간 기록';
@@ -167,6 +167,10 @@ function updateHUD() {
   const next=nextCue(game);
   const longFlight=game.obstacles.find(o=>o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
   const jumpAge=game.jumpStartedAt===null?Infinity:game.elapsed-game.jumpStartedAt;
+  // Optional star branches never replace a required obstacle cue.
+  const bonusFlight=game.obstacles.find(o=>Number.isFinite(o.bonusSecondCue)&&!o.hit&&
+    game.jumpStartedAt!==null&&game.jumpStartedAt>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&
+    game.jumpStartedAt<=o.encounterAt+.1&&game.elapsed<=o.encounterAt+1.05);
   const secondCue=secondJumpCueSeconds(game.mode,longFlight);
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
   let text='';
@@ -175,6 +179,9 @@ function updateHUD() {
   else if(!game.grounded&&game.jumpCount>=2)text='사뿐히 착지해요';
   else if(longFlight&&game.jumpCount===1&&jumpAge<secondCue)text='조금 더 날아가요…';
   else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue)text='지금 한 번 더 톡! ↑↑';
+  else if(bonusFlight&&game.jumpCount===1&&next&&next!==bonusFlight&&away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
+  else if(bonusFlight&&game.jumpCount===1&&jumpAge>=bonusFlight.bonusSecondCue)text='별길은 선택! 한 번 더 톡';
+  else if(bonusFlight&&game.jumpCount===1)text='민트 별은 선택 도전이에요';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
@@ -182,7 +189,7 @@ function updateHUD() {
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
 }
 function handleEvent(event) {
-  if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.kind);audio.play('collect',{combo:game.combo});}
+  if(event.type==='snack') {scene.collectEffect(event.x,event.y,event.value,event.optional?'bonus-star':event.kind);audio.play('collect',{combo:game.combo});}
   if(event.type==='potion') {scene.collectEffect(event.x,event.y,event.seconds,'potion');audio.play('potion');toast(`시간 포션 +${event.seconds}초`,1.4);announce(`시간 포션! ${event.seconds}초 추가, ${Math.ceil(game.remainingTime)}초 남았어요.`);}
   if(event.type==='land') scene.landEffect(event.impactSpeed);
   if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.remainingTime>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
@@ -307,6 +314,11 @@ function bootPhaser() {
         c.beginPath(); c.ellipse(26, 16, 14, 10, 0, 0, Math.PI * 2); c.fill(); c.shadowBlur = 0; c.strokeStyle = '#9d722b'; c.lineWidth = 1.5; c.stroke();
         c.fillStyle = '#fff2c8'; c.beginPath(); c.ellipse(24, 12, 7, 2, 0, 0, Math.PI * 2); c.fill(); c.fillStyle = '#6c4b25'; c.beginPath(); c.arc(33, 14, 1.8, 0, Math.PI * 2); c.fill();
       });
+      make('bonus-star', 52, 52, c => {
+        c.shadowColor='#a8ffe0';c.shadowBlur=8;star(c,26,26,15,'#bff5de');c.shadowBlur=0;
+        star(c,26,25,8,'#f2fff4');c.strokeStyle='#8cdec7';c.lineWidth=2;
+        c.beginPath();c.arc(26,26,23,0,Math.PI*2);c.stroke();
+      });
       make('potion', 56, 66, c => {
         c.shadowColor='#a7ffe0'; c.shadowBlur=10;
         rounded(c,14,21,28,35,10,'#6bd3ba','#e8fff3'); c.shadowBlur=0;
@@ -350,8 +362,8 @@ function bootPhaser() {
       this.puff(CAT_X+66,GROUND-game.y-1,6+Math.min(4,Math.floor(impactSpeed/180)),0xa5b8aa);
     }
     collectEffect(x, y, value = 10, kind = 'fish') {
-      this.puff(x, y, kind === 'fish' ? 5 : 10, kind === 'potion' ? 0xa4ffe0 : kind === 'star' ? 0xffe6a1 : 0xffdf8d);
-      const label = this.add.text(x, y - 10, kind==='potion'?`+${value}초`:`+${value}`, {fontFamily: 'sans-serif', fontSize: kind !== 'fish' ? '23px' : '17px', fontStyle: 'bold', color: kind==='potion'?'#b8ffe9':'#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
+      this.puff(x, y, kind === 'fish' ? 5 : 10, (kind === 'potion'||kind === 'bonus-star') ? 0xa4ffe0 : kind === 'star' ? 0xffe6a1 : 0xffdf8d);
+      const label = this.add.text(x, y - 10, kind==='potion'?`+${value}초`:`+${value}`, {fontFamily: 'sans-serif', fontSize: kind !== 'fish' ? '23px' : '17px', fontStyle: 'bold', color: (kind==='potion'||kind==='bonus-star')?'#b8ffe9':'#fff1ba', stroke: '#21494b', strokeThickness: 3}).setOrigin(.5).setDepth(15); this.fx.push(label);
       this.tweens.add({targets: label, y: y - 45, alpha: 0, duration: 600, onComplete: () => this.removeEffect(label)});
     }
     clearEffect() { if (game.streak % 3 === 0) this.puff(CAT_X + 80, GROUND - game.y - 70, 8, 0xe5f4b9); }
@@ -417,7 +429,12 @@ function bootPhaser() {
       } else {
         const color=box.kind==='gap'?0xefb47b:0xb8d2a0;
         const edges=box.kind==='gap'?[0,box.w]:[0];
-        for(const x of edges){g.lineStyle(3,color);g.lineBetween(x,-26,x,-4);g.fillStyle(color);g.fillTriangle(x,-27,x+15,-23,x,-17);}
+        for(const x of edges){
+          // The far lip can be lower than the takeoff lip: put its flag on the
+          // actual landing floor, not on an imaginary level bridge over the gap.
+          const dy=box.kind==='gap'&&x===box.w ? (box.floorHeight??0)-(floorAt(box.encounterAt+box.duration+.001,game)??box.floorHeight??0) : 0;
+          g.lineStyle(3,color);g.lineBetween(x,dy-26,x,dy-4);g.fillStyle(color);g.fillTriangle(x,dy-27,x+15,dy-23,x,dy-17);
+        }
         if(box.kind==='step') {g.lineStyle(3,color);g.lineBetween(12,-14,22,-24);g.lineBetween(22,-24,32,-14);}
         if(box.kind==='drop') {g.lineStyle(3,color);g.lineBetween(12,-24,22,-14);g.lineBetween(22,-14,32,-24);}
       }
@@ -428,7 +445,14 @@ function bootPhaser() {
       const boxes = new Set(game.obstacles.map(o => o.id)); for (const [id, sprite] of this.boxes) if (!boxes.has(id)) { sprite.destroy(); this.boxes.delete(id); }
       for (const box of game.obstacles) { let sprite = this.boxes.get(box.id); if (!sprite) { sprite = this.hazardSprite(box); this.boxes.set(box.id, sprite); } const markerY=box.kind==='drop'?GROUND-(floorAt(box.encounterAt-.001,game)??0):(box.baseY??GROUND);sprite.setPosition(box.x,markerY).setAlpha(box.hit ? .5 : 1); }
       const treats = new Set(game.treats.map(t => t.id)); for (const [id, sprite] of this.treats) if (!treats.has(id)) { sprite.destroy(); this.treats.delete(id); }
-      for (const treat of game.treats) { let sprite = this.treats.get(treat.id); if (!sprite) { sprite = this.add.image(treat.x, treat.y, treat.kind || 'fish').setDepth(6); this.treats.set(treat.id, sprite); } const pulse = reducedMotion.matches ? 1 : 1 + Math.sin(visualClock * 5 + treat.id) * .05; sprite.setPosition(treat.x, treat.y).setScale(pulse); if (treat.kind === 'star') sprite.setAngle(reducedMotion.matches ? 0 : Math.sin(visualClock * 3) * 9); }
+      for (const treat of game.treats) {
+        let sprite = this.treats.get(treat.id);
+        if (!sprite) { sprite = this.add.image(treat.x,treat.y,treat.optional?'bonus-star':treat.kind||'fish').setDepth(6); this.treats.set(treat.id,sprite); }
+        const pulse=reducedMotion.matches?1:1+Math.sin(visualClock*5+treat.id)*.035;
+        const size=treat.kind==='potion'?1:treat.kind==='star'?.85:.8;
+        sprite.setPosition(treat.x,treat.y).setScale(size*pulse);
+        if(treat.kind==='star')sprite.setAngle(reducedMotion.matches?0:Math.sin(visualClock*3)*7);
+      }
     }
     update(time, delta) {
       if (!loaded) return;

@@ -1,6 +1,9 @@
 // Pure seeded game rules. Renderers supply time; no browser state.
 import { createCourse, ensureCourse, normalizeSeed, POTION_SECONDS } from './course.mjs';
 export { POTION_SECONDS } from './course.mjs';
+import { JUMP_SPEED, SECOND_JUMP_SPEED, flightAfter, landingAfter } from './physics.mjs';
+export { RISE_GRAVITY, FALL_GRAVITY, GRAVITY, JUMP_SPEED, SECOND_JUMP_SPEED, SINGLE_JUMP_APEX, SINGLE_JUMP_SECONDS, flightAfter } from './physics.mjs';
+import { rewardsForEncounter, restReward, bonusRouteFor } from './rewards.mjs';
 export const MODES = Object.freeze({
   gentle: { label: '천천히', speed: 240, gap: 2 },
   normal: { label: '달리기', speed: 360, gap: 2 },
@@ -12,24 +15,6 @@ export const STARTING_SECONDS = 30;
 export const COLLISION_PENALTY_SECONDS = 5;
 export const GROUND = 338;
 export const CAT_X = 76;
-// Immediate launch, shorter ascent and stronger downward pull; holding has no effect.
-export const RISE_GRAVITY = 1250;
-export const FALL_GRAVITY = 1600;
-export const GRAVITY = RISE_GRAVITY; // Compatibility alias, not the descent gravity.
-export const JUMP_SPEED = 440;
-// A fresh air tap resets velocity, never adds it. Maximum combined apex: 185.60px.
-export const SECOND_JUMP_SPEED = 520;
-export const SINGLE_JUMP_APEX = JUMP_SPEED ** 2 / (2 * RISE_GRAVITY);
-export const SINGLE_JUMP_SECONDS = JUMP_SPEED / RISE_GRAVITY + Math.sqrt(2 * SINGLE_JUMP_APEX / FALL_GRAVITY);
-// Integrate through the apex exactly, rather than applying one gravity to a whole tick.
-export function flightAfter(y, vy, dt) {
-  const rise = vy > 0 ? Math.min(dt, vy / RISE_GRAVITY) : 0;
-  y += vy * rise - RISE_GRAVITY * rise * rise / 2;
-  vy -= RISE_GRAVITY * rise;
-  const fall = dt - rise;
-  return { y: y + vy * fall - FALL_GRAVITY * fall * fall / 2,
-    vy: vy - FALL_GRAVITY * fall };
-}
 export const FIXED_STEP = 1 / 120;
 // A hit freezes the world. Only advanceReaction may run this separate clock.
 export const HIT_REACTION_SECONDS = .85;
@@ -124,14 +109,6 @@ function damage(game, details) {
 }
 // Foot support is at CAT_X+70; obstacle collision retains its forgiving body core.
 // Land only on a descending crossing of an existing horizontal surface.
-// Exact descending time to a surface, including an apex inside this interval.
-function landingAfter(y, vy, floor) {
-  const rise = Math.max(0, vy / RISE_GRAVITY);
-  const apex = y + (vy > 0 ? vy * vy / (2 * RISE_GRAVITY) : 0);
-  if (apex < floor) return Infinity;
-  return vy > 0 ? rise + Math.sqrt(2 * (apex - floor) / FALL_GRAVITY)
-    : (vy + Math.sqrt(vy * vy + 2 * FALL_GRAVITY * (y - floor))) / FALL_GRAVITY;
-}
 function advanceTerrain(game,dt) {
   const now=game.elapsed, previous=now-dt;
   game.floorHeight=floorAt(now,game);
@@ -217,29 +194,26 @@ function tick(game, dt) {
     const floorHeight = floorAt(encounterAt + .001,game) ?? floorAt(encounterAt - .001,game) ?? 0;
     const x = CAT_X + 70 + speed * (encounterAt - game.elapsed);
     game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++ });
-    for (let i = 0; i < 3; i++) {
-      const offset = encounter.taps === 2
-        ? encounter.duration * speed * [.15, .5, .75][i]
-        : encounter.taps === 0 ? speed * [.5, .7, .9][i] : -40 + i * 40;
-      const height = encounter.kind === 'high' ? [165,180,165][i]
-        : encounter.taps === 2 ? [125,180,160][i]
-        : encounter.taps === 0 ? 35 : 80 + (i === 1 ? 20 : 0);
-      const rewardFloor = encounter.taps === 0
-        ? floorAt(encounterAt + offset / speed,game) ?? floorHeight : floorHeight;
-      game.treats.push({ x: x + offset, y: GROUND - rewardFloor - height,
-        kind: encounter.taps === 2 && i === 1 ? 'star' : 'fish',
-        value: encounter.taps === 2 && i === 1 ? 50 : 10,
-        taken: false, id: game.serial++, encounterAt, offset });
+    const chunk=game.course.chunks.find(c=>c.index===encounter.chunkIndex);
+    const bonus=bonusRouteFor(encounter);
+    if(bonus) Object.assign(game.obstacles.at(-1),bonus);
+    for(const reward of rewardsForEncounter(chunk,encounter)) {
+      game.treats.push({ ...reward, x: CAT_X + 66.5 + speed * (reward.sampleAt - game.elapsed),
+        y: GROUND - reward.height, taken:false, id:game.serial++,
+        encounterAt:reward.sampleAt, offset:-3.5 });
     }
   }
   for(const pickup of game.course.pickups) {
     if(pickup.index<game.pickupIndex) continue;
     if(pickup.encounterAt-game.elapsed>horizon) break;
     game.pickupIndex=pickup.index+1;
-    const {encounterAt,kind,value,patternId,chunkIndex}=pickup;
-    game.treats.push({ x: CAT_X + 70 + speed * (encounterAt - game.elapsed),
-      y: GROUND - (floorAt(encounterAt,game) ?? 0) - pickup.height,
-      kind,value,patternId,chunkIndex,taken:false,id:game.serial++,encounterAt,offset:0 });
+    const chunk=game.course.chunks.find(c=>c.index===pickup.chunkIndex);
+    const reward=restReward(chunk,pickup);
+    if(!reward) continue;
+    const {kind,value,patternId,chunkIndex}=pickup;
+    game.treats.push({ ...reward, x: CAT_X + 66.5 + speed * (reward.sampleAt - game.elapsed),
+      y: GROUND - reward.height, kind,value,patternId,chunkIndex,
+      taken:false,id:game.serial++,encounterAt:reward.sampleAt,offset:-3.5 });
   }
   const cat = catBounds(game);
   for (const obstacle of game.obstacles) {
@@ -284,7 +258,7 @@ function tick(game, dt) {
       const value = treat.value ?? 10;
       if (kind === 'star') game.stars++;
       game.score += value;
-      emit(game, 'snack', { id: treat.id, x: treat.x, y: treat.y, kind, value, score: game.score });
+      emit(game, 'snack', { id: treat.id, x: treat.x, y: treat.y, kind, value, score: game.score, route:treat.route??'main', optional:treat.optional??false, routeId:treat.routeId, sampleAt:treat.sampleAt });
     }
   }
   game.obstacles = game.obstacles.filter(o => o.x + o.w > -80);
