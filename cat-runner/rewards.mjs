@@ -15,7 +15,7 @@ export function bonusRouteFor(encounter) {
 }
 export function nominalRouteInputs(chunk,{bonus=false}={}) {
   return chunk.encounters.flatMap(o=>{
-    if(!o.taps)return [];
+    if(!o.taps||o.optionalRoute)return [];
     const first=o.encounterAt-(o.cueLead??.5)+REWARD_RESPONSE_SECONDS;
     const result=[{at:first,velocity:JUMP_SPEED,sourceEncounterAt:o.encounterAt}];
     if(o.taps===2 || bonus&&bonusRouteFor(o)) result.push({
@@ -64,6 +64,7 @@ function planChunkRewards(chunk) {
   if(rewardPlans.has(chunk))return rewardPlans.get(chunk);
   const descriptors=[];
   for(const encounter of chunk.encounters) {
+    if(encounter.optionalRoute)continue;
     const {encounterAt,taps}=encounter,first=encounterAt-(encounter.cueLead??.5)+REWARD_RESPONSE_SECONDS;
     const second=first+(encounter.secondCue??.18)+REWARD_RESPONSE_SECONDS;
     const times=taps===0?[encounterAt-.1,encounterAt+.12,encounterAt+.34]
@@ -96,6 +97,13 @@ export function rewardsForEncounter(chunk,encounter) {
   return planChunkRewards(chunk).filter(d=>d.sourceEncounterAt===encounter.encounterAt);
 }
 export function restReward(chunk,pickup) {
+  // Authored upper paths use absolute world heights, never a ground-path
+  // projection that would place their rewards inside a roof or down below.
+  if(Number.isFinite(pickup.absoluteHeight)) return {
+    ...pickup,sampleAt:pickup.encounterAt,height:pickup.absoluteHeight,
+    route:'upper',optional:true,routeId:`${pickup.chunkIndex}:level${pickup.level??2}`,
+    routeOrder:pickup.index??0,sourceEncounterAt:pickup.encounterAt,
+  };
   if(!chunk)return {...pickup,sampleAt:pickup.encounterAt,route:'main',optional:false};
   // Skip a redundant rest fish if a late downhill path already fills that slot.
   if(pickup.kind==='fish'&&planChunkRewards(chunk).some(r=>Math.abs(r.sampleAt-pickup.encounterAt)<.24))return null;

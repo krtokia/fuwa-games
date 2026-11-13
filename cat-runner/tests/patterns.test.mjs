@@ -17,7 +17,7 @@ function fixture(ids,mode='normal') {
  chunks[0].terrain[0].start=-10;
  chunks.at(-1).end=1000;chunks.at(-1).terrain.at(-1).end=1000;
  const terrain=chunks.flatMap(c=>c.terrain);
- Object.assign(g.course,{chunks,terrain,terrainEdges:[...new Set(terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b),
+ Object.assign(g.course,{chunks,terrain,platforms:chunks.flatMap(c=>c.platforms),terrainEdges:[...new Set(terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b),
   encounters:chunks.flatMap(c=>c.encounters),pickups:chunks.flatMap(c=>c.pickups),generatedUntil:1000});
  g.status='running';
  return g;
@@ -121,7 +121,7 @@ test('every new jump accepts dense 80–250ms cue responses at both speeds and e
  assert.equal(trials,15372);
 });
 
-test('all 196 ordered pattern pairs keep half a second of landing runway and reachable exit potions',()=>{
+test('all ordered pattern pairs keep half a second of landing runway and reachable exit potions',()=>{
  let trials=0,minRunway=Infinity;
  const responses=[[.08,.08],[.08,.25],[.15,.15],[.25,.08],[.25,.25]];
  for(const a of PATTERNS)for(const b of PATTERNS)for(const mode of Object.keys(MODES))for(const hz of [30,60,120])
@@ -133,5 +133,5 @@ test('all 196 ordered pattern pairs keep half a second of landing runway and rea
    assert.equal(g.cleared,a.encounters.length+b.encounters.length,label);
    minRunway=Math.min(minRunway,result.minRunway);trials++;
   }
- assert.equal(trials,5880);assert(minRunway>.5);
+ assert.equal(trials,PATTERNS.length**2*Object.keys(MODES).length*3*responses.length);assert(minRunway>.5);
 });

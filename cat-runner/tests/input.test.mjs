@@ -10,6 +10,7 @@ const rewards=source('rewards.mjs');
 const engine=source('engine.mjs');
 const characters=source('characters.mjs');
 const animation=source('animation.mjs');
+const viewport=source('viewport.mjs');
 const controller=readFileSync(new URL('../game.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 function setup(saved = null, { query = '?seed=10ddcafe', autoStart=true, reducedMotion=false } = {}) {
  const elements=new Map();
@@ -32,7 +33,7 @@ function setup(saved = null, { query = '?seed=10ddcafe', autoStart=true, reduced
  class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type,options){this.calls.push(['play',type,options]);}}
  const writes=[];
  const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(key,value){writes.push([key,value]);}},matchMedia:()=>({matches:reducedMotion}),crypto,location,URL,URLSearchParams,console};
- vm.createContext(sandbox);vm.runInContext(course+'\n'+physics+'\n'+rewards+'\n'+engine+'\n'+characters+'\n'+animation+'\n'+controller,sandbox);
+ vm.createContext(sandbox);vm.runInContext(course+'\n'+physics+'\n'+rewards+'\n'+engine+'\n'+characters+'\n'+animation+'\n'+viewport+'\n'+controller,sandbox);
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},boostEffect(){},puff(){},landEffect(){},collectEffect(){},potionEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
  if(autoStart)el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};

@@ -1,5 +1,5 @@
 import { MODES, STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
-import { worldViewport } from './viewport.mjs';
+import { worldViewport, verticalCameraTop } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 import { runnerPose, actionFloorLift, reactionPose } from './animation.mjs';
 import { CHARACTER_IDS, CHARACTERS, getCharacter, movementFrame, characterAtlases, atlasFrame, atlasAnchor } from './characters.mjs';
@@ -224,6 +224,7 @@ function updateHUD() {
   else if(bonusFlight&&game.jumpCount===1)text='민트 별은 선택 도전이에요';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
+  else if(game.segment?.platforms?.length)text=game.floorHeight>=180?'3층 별길! 끝에서 아래 길로':game.floorHeight>=90?'2층 도착! 다시 두 번 톡 하면 3층':'위층은 선택! 두 번 톡으로 지붕에 착지';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');
@@ -312,6 +313,7 @@ function bootPhaser() {
       this.moon = this.add.circle(this.scale.width * .8, 60, 19, 0xffeac2, .86).setDepth(-10);
       this.moonShade = this.add.circle(this.scale.width * .8 - 7, 54, 18, 0x143b4b).setDepth(-10);
       this.terrain = this.add.graphics().setDepth(-3);
+      this.levelLabels = [];
       this.rescue = this.add.ellipse(CAT_X+66,GROUND-48,180,118).setStrokeStyle(4,0xb6f0df,.9).setVisible(false).setDepth(12);
       this.lamps = Array.from({length: 5}, () => this.add.image(0, GROUND - 23, 'lamp').setOrigin(.5, 1).setDepth(-6));
       this.fireflies = Array.from({length: 15}, (_, i) => this.add.circle((i * 137 + 40) % this.scale.width, 90 + (i * 43) % 170, i % 3 ? 1.5 : 2.2, 0xffdfa0, .25).setDepth(-4));
@@ -321,7 +323,7 @@ function bootPhaser() {
       this.boostRing=this.add.ellipse(CAT_X+66,GROUND+8,78,24).setStrokeStyle(3,0xffdfa0,.9).setVisible(false).setDepth(9);
       this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
       const resize = size => {
-        this.cameraTop=GROUND-size.height*.82;
+        this.cameraTop=verticalCameraTop(size.height,game.y,GROUND);
         this.cameras.main.setScroll(0,this.cameraTop);
         const backgroundWidth = Math.max(size.height*3, size.width + 220);
         this.backdrop.setDisplaySize(backgroundWidth, backgroundWidth / 3).setY(this.cameraTop+size.height-backgroundWidth/3);
@@ -430,15 +432,48 @@ function bootPhaser() {
     }
 
     finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, this.cameraTop+150, 14, 0xffd88f); this.puff(this.scale.width * .75, this.cameraTop+150, 14, 0xbfd9a8); } }
+    updateCamera() {
+      if(!this.cameras?.main)return;
+      // Tracking is geometric (no shake/tween), and freezes with reactions/pause.
+      if(game.status!=='paused'&&game.reactionRemaining<=0)
+        this.cameraTop=verticalCameraTop(this.scale.height,game.y,GROUND);
+      this.cameras.main.setScroll(0,this.cameraTop);
+      this.backdrop.setY(this.cameraTop+this.scale.height-this.backdrop.displayHeight);
+      this.moon.y=this.moonGlow.y=this.cameraTop+80;this.moonShade.y=this.cameraTop+74;
+    }
     drawTerrain() {
       const g=this.terrain, bottom=this.cameraTop+this.scale.height+100;
       g.clear();
+      for(const label of this.levelLabels??[])label.setVisible(false);
+      let labelIndex=0;
       for(const hole of game.obstacles.filter(o=>o.kind==='gap')){g.fillStyle(0x071b28,.94);g.fillRect(hole.x,(hole.baseY??GROUND)+4,hole.w,bottom-(hole.baseY??GROUND));}
       // No road texture spans a hole. Exposed side faces make every lip explicit.
       for(const segment of terrainSegments(game)) {
         const left=Math.max(-50,segment.x),right=Math.min(this.scale.width+50,segment.x+segment.w);
         if(right<=left)continue;
         const top=segment.baseY;
+        if(segment.oneWay) {
+          // Thin open-bottom roofs: you can pass through from below and land on
+          // top. Never fill to the bottom and hide the route underneath.
+          const third=segment.level===3, edge=third?0xeac9f2:0xa9eadb;
+          g.fillStyle(0x102e3a,.6);g.fillRect(left,top+12,right-left,6);
+          g.fillStyle(third?0x625d7d:0x366b70,.96);g.fillRect(left,top,right-left,12);
+          g.fillStyle(edge);g.fillRect(left,top,right-left,4);
+          g.lineStyle(1,edge,.35);
+          const phase=game.distance%36;
+          for(let x=Math.floor((left+phase)/36)*36-phase;x<right;x+=36)
+            g.lineBetween(Math.max(left,x),top+5,Math.min(right,x+16),top+11);
+          for(const x of [segment.x,segment.x+segment.w])if(x>=-12&&x<=this.scale.width+12) {
+            g.fillStyle(edge);g.fillRoundedRect(x-5,top-4,10,20,3);
+          }
+          const labelX=Math.max(10,segment.x+18);
+          if(labelX<right-35) {
+            let label=this.levelLabels[labelIndex];
+            if(!label){label=this.add.text(0,0,'',{fontFamily:'sans-serif',fontSize:'16px',fontStyle:'bold',color:third?'#efd8f4':'#c5fff0',backgroundColor:'#17333dcc',padding:{x:5,y:2}}).setDepth(4);this.levelLabels.push(label);}
+            label.setText(`${segment.level}층`).setPosition(labelX,top+19).setVisible(true);labelIndex++;
+          }
+          continue;
+        }
         g.fillStyle(0x244b52);g.fillRect(left,top,right-left,bottom-top);
         g.fillStyle(0x527b78);g.fillRect(left,top,right-left,18);
         g.fillStyle(0xd2c398);g.fillRect(left,top,right-left,4);
@@ -581,6 +616,7 @@ function bootPhaser() {
       this.backdrop.x = -Math.min(200, distance * .012);
       for (let i = 0; i < this.lamps.length; i++) this.lamps[i].x = ((i * 340 + 240 - distance * .32) % 1700 + 1700) % 1700 - 100;
       for (let i = 0; i < this.fireflies.length; i++) { const dot = this.fireflies[i]; dot.x = ((i * 137 + 40 - distance * .08) % (this.scale.width + 40) + this.scale.width + 40) % (this.scale.width + 40); dot.y = 90 + (i * 43) % 170 + (reducedMotion.matches ? 0 : Math.sin(visualClock * .8 + i) * 7); dot.setAlpha(.18 + (reducedMotion.matches ? .1 : Math.sin(visualClock * 1.5 + i) * .12 + .12)); }
+      this.updateCamera();
       this.syncObjects();
       if (running && game.grounded && !rescuing && visualClock - this.lastFootstep > .16) { this.lastFootstep = visualClock; this.puff(CAT_X + 42, GROUND-game.y, 2, 0xc0c1a8); }
 

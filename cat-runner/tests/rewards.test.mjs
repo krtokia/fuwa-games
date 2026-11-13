@@ -10,7 +10,7 @@ function fixture(id,mode='normal',width=720) {
  chunk.end=1000;chunk.terrain.at(-1).end=1000;
  chunk.encounters.forEach((o,index)=>o.index=index);
  // Keep this real authored chunk in view without generating a successor.
- Object.assign(game.course,{chunks:[chunk],terrain:chunk.terrain,
+ Object.assign(game.course,{chunks:[chunk],terrain:chunk.terrain,platforms:chunk.platforms??[],
   terrainEdges:[...new Set(chunk.terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b),
   encounters:chunk.encounters,pickups:[],generatedUntil:1000});
  game.status='running';return game;
@@ -24,7 +24,7 @@ function playRoute(game,{hz=120,bonus=false,until=6,response=.15,secondResponse=
     if(!reward.optional||bonus)expected.set(rewardKey(reward),reward);
    for(const pickup of chunk.pickups??[]) {
     const reward=restReward(chunk,pickup);
-    if(reward&&pickup.kind!=='potion')expected.set(rewardKey(reward),reward);
+    if(reward&&!reward.optional&&pickup.kind!=='potion')expected.set(rewardKey(reward),reward);
    }
   }
   for(const encounter of game.course.encounters) {

@@ -21,14 +21,29 @@ export const HIT_REACTION_SECONDS = .85;
 // Only the bounded, currently generated terrain is retained.
 export function terrainSegments(game) {
   const speed=MODES[game.mode].speed;
-  return game.course.terrain.map(s=>({...s,x:CAT_X+70+speed*(s.start-game.elapsed),
+  return [...game.course.terrain,...(game.course.platforms??[]).map(s=>({...s,oneWay:true}))].map(s=>({...s,x:CAT_X+70+speed*(s.start-game.elapsed),
     w:speed*(s.end-s.start),baseY:GROUND-s.height}));
 }
 export function floorAt(time,game) {
   return game?.course.terrain.find(s=>time>=s.start && time<s.end)?.height ?? null;
 }
+// One-way decks are landing surfaces, not solid walls. Keep floorAt's baseline
+// semantics for legacy course/reward planning; renderers use supportingFloorAt.
+function surfacesAt(time,game) {
+  return [...game.course.terrain,...(game.course.platforms??[])]
+    .filter(s=>time>=s.start&&time<s.end);
+}
+export function supportingFloorAt(time,game,y=game.y) {
+  const heights=surfacesAt(time,game).map(s=>s.height).filter(height=>height<=y+1e-7);
+  return heights.length?Math.max(...heights):null;
+}
+function obstacleRouteRelevant(game,obstacle) {
+  if(!obstacle.upperRoute)return true;
+  return game.y>=obstacle.floorHeight-8 &&
+    (game.floorHeight===null||game.floorHeight<=obstacle.floorHeight+8);
+}
 export function nextCue(game) {
-  return game.obstacles.find(o=>!o.hit&&!o.cleared&&o.encounterAt>=game.elapsed-.1) ?? null;
+  return game.obstacles.find(o=>!o.hit&&!o.cleared&&o.encounterAt>=game.elapsed-.1&&obstacleRouteRelevant(game,o)) ?? null;
 }
 function horizonFor(game) {
   return Math.max(2.4,(game.width+80-CAT_X-70)/MODES[game.mode].speed);
@@ -111,40 +126,55 @@ function damage(game, details) {
 // Land only on a descending crossing of an existing horizontal surface.
 function advanceTerrain(game,dt) {
   const now=game.elapsed, previous=now-dt;
-  game.floorHeight=floorAt(now,game);
   if (now < game.recoveryUntil) {
     game.grounded=true; game.vy=0; game.jumpCount=0;
     return;
   }
-  // Split at every terrain boundary. A walk-off begins at the real edge, and a
-  // raised face is tested at its crossing, never at the later end of the tick.
-  const edges=(game.course.terrainEdges??[...new Set(game.course.terrain.flatMap(s=>[s.start,s.end]))].sort((a,b)=>a-b)).filter(t=>t>previous&&t<=now);
+  // Include every deck edge even when the generated solid-edge cache exists.
+  // Each subinterval has a constant set of horizontal landing surfaces.
+  const platforms=game.course.platforms??[];
+  const edges=[...new Set([
+    ...(game.course.terrainEdges??game.course.terrain.flatMap(s=>[s.start,s.end])),
+    ...platforms.flatMap(s=>[s.start,s.end]),
+  ])].filter(t=>t>previous&&t<=now).sort((a,b)=>a-b);
   let cursor=previous;
   for (const end of [...edges,...(edges.at(-1)===now?[]:[now])]) {
-    const floor=floorAt((cursor+end)/2,game);
-    if (!(game.grounded && floor===game.y && game.vy<=0)) {
+    const midpoint=(cursor+end)/2, surfaces=surfacesAt(midpoint,game);
+    const floor=floorAt(midpoint,game);
+    const supported=surfaces.some(s=>Math.abs(s.height-game.y)<1e-7);
+    if (!(game.grounded && supported && game.vy<=0)) {
       if (game.grounded) game.jumpCount=Math.max(1,game.jumpCount);
       game.grounded=false;
       const duration=end-cursor;
-      const landing=floor===null?Infinity:landingAfter(game.y,game.vy,floor);
-      if (landing>=0 && landing<=duration+1e-10) {
-        const impactSpeed=-flightAfter(game.y,game.vy,Math.min(duration,landing)).vy;
-        game.y=floor;game.vy=0;game.grounded=true;game.jumpCount=0;
-        emit(game,'land',{impactSpeed,at:cursor+landing});
+      // landingAfter returns the descending crossing, including when an
+      // ascending cat passes through a deck before coming down onto it.
+      const crossings=surfaces.map(s=>({height:s.height,at:landingAfter(game.y,game.vy,s.height)}))
+        .filter(s=>Number.isFinite(s.at)&&s.at>=0&&s.at<=duration+1e-10)
+        .sort((a,b)=>a.at-b.at||b.height-a.height);
+      const landing=crossings[0];
+      if (landing) {
+        const impactSpeed=-flightAfter(game.y,game.vy,Math.min(duration,landing.at)).vy;
+        game.y=landing.height;game.vy=0;game.grounded=true;game.jumpCount=0;
+        emit(game,'land',{impactSpeed,at:cursor+landing.at,height:landing.height});
       } else Object.assign(game,flightAfter(game.y,game.vy,duration));
     }
+    // Only solid terrain faces damage the cat. A deck beginning above or
+    // beside the cat never snaps it upward or consumes a life.
     const nextFloor=floorAt(end,game);
     if (nextFloor!==null && nextFloor>(floor??-Infinity) && game.y<nextFloor-1e-7) {
       const safe=game.course.terrain.find(s=>s.start===end);
       recover(game,'wall',safe);return;
     }
-    if (game.grounded && nextFloor!==game.y) {
+    if (game.grounded && !surfacesAt(end,game).some(s=>Math.abs(s.height-game.y)<1e-7)) {
       game.grounded=false;game.jumpCount=Math.max(1,game.jumpCount);
     }
     cursor=end;
   }
+  game.floorHeight=supportingFloorAt(now,game);
   if(game.y < -160) {
-    const safe=game.course.terrain.find(s=>s.start<=now && s.end>now) || game.course.terrain.find(s=>s.start>now);
+    const all=[...game.course.terrain,...platforms];
+    const safe=all.filter(s=>s.start<=now&&s.end>now).sort((a,b)=>a.height-b.height)[0]
+      ?? all.filter(s=>s.start>now).sort((a,b)=>a.start-b.start||a.height-b.height)[0];
     recover(game,'fall',safe);
   }
 }
@@ -191,9 +221,11 @@ function tick(game, dt) {
     if(encounter.encounterAt-game.elapsed>horizon) break;
     game.courseIndex=encounter.index+1;
     const { encounterAt } = encounter;
-    const floorHeight = floorAt(encounterAt + .001,game) ?? floorAt(encounterAt - .001,game) ?? 0;
+    const baselineHeight = floorAt(encounterAt + .001,game) ?? floorAt(encounterAt - .001,game) ?? 0;
+    const floorHeight = Number.isFinite(encounter.floorHeight)?encounter.floorHeight:baselineHeight;
+    const upperRoute=Number.isFinite(encounter.floorHeight)&&floorHeight>baselineHeight+1;
     const x = CAT_X + 70 + speed * (encounterAt - game.elapsed);
-    game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++ });
+    game.obstacles.push({ ...encounter, w: encounter.duration*speed, floorHeight, upperRoute, routeVisited:false, baseY: GROUND-floorHeight, x, hit: false, cleared: false, id: game.serial++ });
     const chunk=game.course.chunks.find(c=>c.index===encounter.chunkIndex);
     const bonus=bonusRouteFor(encounter);
     if(bonus) Object.assign(game.obstacles.at(-1),bonus);
@@ -222,6 +254,8 @@ function tick(game, dt) {
     // Sprite-wide pickup bounds remain welcoming; the body/box collision
     // cores forgive paws and cardboard corners at either jump height.
     const body = { x: CAT_X + 50, y: cat.y, w: 30, h: cat.h };
+    if(obstacle.upperRoute&&obstacleRouteRelevant(game,obstacle)&&
+        obstacle.x<body.x+body.w&&obstacle.x+obstacle.w>body.x)obstacle.routeVisited=true;
     if (!obstacle.hit && ['crate','long','high',undefined].includes(obstacle.kind) && overlaps(body,
         { x: obstacle.x + 9, y: (obstacle.baseY ?? GROUND) - obstacle.h + 5, w: obstacle.w - 18, h: obstacle.h - 5 })) {
       // Mark even protected contacts, so they cannot become a later hit or clean clear.
@@ -232,7 +266,7 @@ function tick(game, dt) {
     }
     if (!obstacle.cleared && obstacle.x + obstacle.w <= cat.x) {
       obstacle.cleared = true;
-      if (!obstacle.hit) {
+      if (!obstacle.hit && (!obstacle.upperRoute||obstacle.routeVisited)) {
         game.cleared++; game.streak++;
         game.combo = Math.min(5, game.streak);
         const value = 20 + 5 * (game.combo - 1);

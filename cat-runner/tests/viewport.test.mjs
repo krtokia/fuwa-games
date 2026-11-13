@@ -17,3 +17,12 @@ test('world aspect follows stage in portrait, landscape and resizing',()=>{
  for(const [w,h] of [[309,300],[720,360],[1000,400]]){const v=worldViewport(w,h);assert(Math.abs(v.width/v.height-w/h)<.01);}
  assert(Number.isFinite(worldViewport(0,0).scrollY));
 });
+
+test('upper floors keep character and reaction label within the camera safe area',async()=>{
+ const {verticalCameraTop}=await import('../viewport.mjs');
+ for(const h of [260,420,720])for(const y of [0,96,192,270,377]) {
+  const top=verticalCameraTop(h,y);
+  assert(338-y-top>=160-1e-6);
+  assert(top<=338-h*.82);
+ }
+});

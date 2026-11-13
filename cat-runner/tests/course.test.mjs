@@ -34,7 +34,7 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
 }
 
 test('authored patterns return to baseline with readable entries and safe potion exits',()=>{
- assert.equal(PATTERNS.length,14);
+ assert.equal(PATTERNS.length,21);
  for(const p of PATTERNS){const chunk=instantiatePattern(p.id);assert.equal(chunk.end,CHUNK_SECONDS);assert.equal(chunk.terrain[0].start,0);assert.equal(chunk.terrain[0].height,0);assert.equal(chunk.terrain.at(-1).end,6);assert.equal(chunk.terrain.at(-1).height,0);assert(chunk.terrain.at(-1).start<=4.65);
   // An automatic drop may precede the first jump; no active cue is rushed.
   assert(chunk.encounters[0].encounterAt>=1.15);assert(chunk.encounters.find(o=>o.taps).encounterAt>=1.4);
@@ -94,6 +94,6 @@ test('no-input runs end without endless falls, even with reachable exit potions'
 });
 test('streaming generation and runtime actors stay bounded in a ten-minute stress run',()=>{
  const maxTerrainPerChunk=Math.max(...PATTERNS.map(p=>p.terrain.length)),maxEncountersPerChunk=Math.max(...PATTERNS.map(p=>p.encounters.length));
- const result=route({seed:0x1234abcd,hz:30,width:1200,until:600,extend:true});assert.equal(result.g.hitCount,0);assert.equal(result.g.status,'running');assert(result.maxChunks<=5);assert(result.maxTerrain<=5*maxTerrainPerChunk);assert(result.maxObstacles<=10);assert(result.maxTreats<=30);
- const c=createCourse(8);for(let t=0;t<=86400;t+=3){ensureCourse(c,t+12,t-3);assert(c.chunks.length<=4);assert(c.encounters.length<=4*maxEncountersPerChunk);assert(c.terrain.length<=4*maxTerrainPerChunk);assert(c.pickups.length<=8);}assert.equal(c.nextChunkIndex,14402);
+ const result=route({seed:0x1234abcd,hz:30,width:1200,until:600,extend:true});assert.equal(result.g.hitCount,0);assert.equal(result.g.status,'running');assert(result.maxChunks<=5);assert(result.maxTerrain<=5*maxTerrainPerChunk);assert(result.maxObstacles<=10);assert(result.maxTreats<=40);
+ const c=createCourse(8);for(let t=0;t<=86400;t+=3){ensureCourse(c,t+12,t-3);assert(c.chunks.length<=4);assert(c.encounters.length<=4*maxEncountersPerChunk);assert(c.terrain.length<=4*maxTerrainPerChunk);assert(c.pickups.length<=4*(2+Math.max(...PATTERNS.map(p=>p.routePickups.length))));}assert.equal(c.nextChunkIndex,14402);
 });
