@@ -2,6 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
+import { CHARACTER_IDS, CHARACTERS, characterAtlases, atlasFrame, atlasAnchor } from '../characters.mjs';
 import { STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS } from '../engine.mjs';
 const file=p=>new URL('../'+p,import.meta.url);
 const html=readFileSync(file('index.html'),'utf8');
@@ -84,8 +86,8 @@ test('hiss uses a transparent generated pose with reset and reduced-motion fallb
  const pose=readFileSync(file('assets/fuwa-hiss-front-v1.png'));
  assert.equal(pose.readUInt32BE(16),1254);assert.equal(pose.readUInt32BE(20),1254);assert.equal(pose[25],6);
  assert(game.includes("this.load.image('hiss', './assets/fuwa-hiss-front-v1.png')"));
- assert(game.includes('this.reactionFootY = GROUND + 1;'));assert(game.includes('this.hissLabel?.setVisible(false)'));assert(game.includes("setTexture('hiss','trimmed')"));
- assert(game.includes('reducedMotion.matches?1:1+.035'));assert(game.includes("'하악!'"));
+ assert(game.includes('this.reactionFootY = GROUND + 1;'));assert(game.includes('this.reactionLabel?.setVisible(false)'));assert(game.includes("setTexture('hiss','trimmed')"));
+ assert(readFileSync(file('animation.mjs'),'utf8').includes('const settle = reducedMotion ? 1 : 1 + .035'));assert(game.includes("'하악!'"));
  assert(game.includes('advanceReaction(game,dt)'));assert(game.includes('visualClock+=game.elapsed-before'));
  assert(game.includes('audio.pause({preserveHit:true})'));
  assert(readFileSync(file('scripts/build-standalone.py'),'utf8').includes('fuwa-hiss-front-v1.png'));
@@ -147,4 +149,94 @@ test('reward tutorial and mint bonus art explicitly mark the optional branch',()
 test('offline build includes the shared physics and trajectory-based reward modules',()=>{
  const build=readFileSync(file('scripts/build-standalone.py'),'utf8');
  assert(build.includes("inline_module('physics.mjs')"));assert(build.includes("inline_module('rewards.mjs')"));
+});
+
+// Decode pixels rather than inferring transparency from the PNG color type.
+// Generated atlases are 8-bit, non-interlaced RGBA; no external decoder required.
+function rgbaPNG(path) {
+ const png=readFileSync(file(path.replace(/^\.\//,''))),width=png.readUInt32BE(16),height=png.readUInt32BE(20);
+ assert.equal(png.subarray(1,4).toString(),'PNG',path);assert.equal(png[24],8,path+' bit depth');assert.equal(png[25],6,path+' RGBA');assert.equal(png[28],0,path+' interlace');
+ const chunks=[];let cursor=8;
+ while(cursor<png.length){const length=png.readUInt32BE(cursor),type=png.toString('ascii',cursor+4,cursor+8);if(type==='IDAT')chunks.push(png.subarray(cursor+8,cursor+8+length));cursor+=length+12;}
+ const raw=inflateSync(Buffer.concat(chunks)),stride=width*4,pixels=Buffer.alloc(width*height*4);
+ assert.equal(raw.length,(stride+1)*height,path+' decoded byte count');
+ const paeth=(a,b,c)=>{const p=a+b-c,pa=Math.abs(p-a),pb=Math.abs(p-b),pc=Math.abs(p-c);return pa<=pb&&pa<=pc?a:pb<=pc?b:c;};
+ for(let y=0;y<height;y++){
+  const kind=raw[y*(stride+1)],start=y*stride;assert(kind>=0&&kind<=4,path+' PNG filter');
+  for(let x=0;x<stride;x++){
+   const a=x<4?0:pixels[start+x-4],b=y===0?0:pixels[start+x-stride],c=y===0||x<4?0:pixels[start+x-stride-4];
+   const prediction=kind===0?0:kind===1?a:kind===2?b:kind===3?Math.floor((a+b)/2):paeth(a,b,c);
+   pixels[start+x]=(raw[y*(stride+1)+1+x]+prediction)&255;
+  }
+ }
+ return{width,height,pixels,alpha:(x,y)=>pixels[(y*width+x)*4+3]};
+}
+
+test('character picker is labelled, keyboard-accessible and has three explicit identities',()=>{
+ const css=readFileSync(file('style.css'),'utf8');
+ assert(html.includes('<legend>함께 달릴 고양이</legend>'));assert(css.includes('input:focus-visible+span'));
+ for(const id of CHARACTER_IDS){
+  assert(new RegExp(`<input[^>]+id="character-${id}"[^>]+type="radio"[^>]+name="character"[^>]+value="${id}"`).test(html));
+  assert(html.includes(`id="character-preview-${id}"`));assert(html.includes(CHARACTERS[id].name));
+ }
+ assert(html.includes('role="img" aria-label='));assert(html.includes('앞구르기'));assert(html.includes('냥냥펀치'));
+ assert(!html.includes('물기'));assert(!html.includes('id="character-nabi-bite"'));
+ assert(game.includes("card !== 'start-card'"));assert(game.includes("document.title = `${current.name} 달리기 · 후와 게임`"));
+ assert(game.includes("saved.character = id"));assert(game.includes("getCharacter(saved.character).id"));
+});
+
+test('new local atlases have real transparent pixels and every registered crop retains its painted frame',()=>{
+ assert.equal(characterAtlases().length,4);
+ for(const atlas of characterAtlases()) {
+  assert(atlas.path.startsWith('./assets/'));assert(existsSync(file(atlas.path)),atlas.path);
+  const image=rgbaPNG(atlas.path);let transparent=0,opaque=0;
+  for(let i=3;i<image.pixels.length;i+=4){if(image.pixels[i]===0)transparent++;if(image.pixels[i]>200)opaque++;}
+  assert(transparent>image.width*image.height*.1,atlas.key+' must have true alpha, not a painted background');
+  assert(opaque>image.width*image.height*.03,atlas.key+' must contain visible artwork');
+  for(let i=0;i<atlas.count;i++){
+   const frame=atlasFrame(atlas,i,image.width,image.height),anchor=atlasAnchor(atlas,i);
+   for(const value of Object.values(frame))assert(Number.isInteger(value),atlas.key+' integral measured crop');
+   assert(frame.x>=0&&frame.y>=0&&frame.width>0&&frame.height>0);assert(frame.x+frame.width<=image.width&&frame.y+frame.height<=image.height);
+   assert(anchor.length===2&&anchor.every(value=>Number.isFinite(value)&&value>=0&&value<=1),atlas.key+' valid anchor');
+   const col=i%atlas.columns,row=Math.floor(i/atlas.columns),left=Math.round(col*image.width/atlas.columns),right=Math.round((col+1)*image.width/atlas.columns),top=Math.round(row*image.height/atlas.rows),bottom=Math.round((row+1)*image.height/atlas.rows);
+   assert(frame.x>=left&&frame.y>=top&&frame.x+frame.width<=right&&frame.y+frame.height<=bottom,`${atlas.key}/${i} registered crop stays in its own cell`);
+   let visible=0,clipped=0,edge=0;
+   for(let y=top;y<bottom;y++)for(let x=left;x<right;x++)if(image.alpha(x,y)>16){visible++;if(x<frame.x||x>=frame.x+frame.width||y<frame.y||y>=frame.y+frame.height)clipped++;if(x===left||x===right-1||y===top||y===bottom-1)edge++;}
+   assert(visible>1000,`${atlas.key}/${i} has visible painted subject`);assert.equal(clipped,0,`${atlas.key}/${i} must not crop painted paws/tail/ears`);assert.equal(edge,0,`${atlas.key}/${i} must not bleed into a neighbouring cell`);
+   for(const [x,y] of [[left,top],[right-1,top],[left,bottom-1],[right-1,bottom-1]])assert(image.alpha(x,y)<=4,`${atlas.key}/${i} transparent cell corners`);
+  }
+ }
+});
+
+test('all character atlases are preloaded, registered from actual dimensions and required before start',()=>{
+ assert(game.includes('for (const atlas of characterAtlases()) this.load.image(atlas.key, atlas.path)'));
+ assert(game.includes('...characterAtlases().map(atlas => atlas.key)'));
+ assert(game.includes('atlasFrame(sheet, i, image.width, image.height)'));
+ assert(game.includes('atlasAnchor(atlas,index)'));
+ assert(game.includes('movementFrame(pose)'));assert(game.includes('reactionPose(current,game.reactionElapsed'));
+ assert.equal(CHARACTERS.shuri.reaction.kind,'tumble');assert.equal(CHARACTERS.nabi.reaction.kind,'punch');
+ assert.equal(CHARACTERS.shuri.reaction.atlas.count,4);assert.equal(CHARACTERS.nabi.reaction.atlas.count,4);
+ for(const atlas of characterAtlases())assert(Number.isFinite(atlas.scale??atlas.displayWidth)&&(atlas.scale??atlas.displayWidth)>0);
+});
+
+test('offline review build bundles the character registry and every local movement and reaction atlas',()=>{
+ const build=readFileSync(file('scripts/build-standalone.py'),'utf8');
+ assert(build.includes("inline_module('characters.mjs')"));
+ for(const atlas of characterAtlases())assert(build.includes(atlas.path.split('/').at(-1)),atlas.path);
+ assert(build.includes("characters = characters.replace('./assets/' + asset, uri)"));
+});
+
+test('measured artwork feet stay above the floor and land/reaction anchors do not float',()=>{
+ for(const atlas of characterAtlases()) {
+  const image=rgbaPNG(atlas.path),isMovement=atlas.count===12;
+  for(let index=0;index<atlas.count;index++) {
+   const frame=atlasFrame(atlas,index,image.width,image.height),anchor=atlasAnchor(atlas,index),scale=atlas.scale??atlas.displayWidth/frame.width;
+   let bottom=-1;
+   for(let y=0;y<frame.height;y++)for(let x=0;x<frame.width;x++)if(image.alpha(frame.x+x,frame.y+y)>=64)bottom=Math.max(bottom,y+1);
+   assert(bottom>0);
+   const corrected=(bottom-anchor[1]*frame.height)*scale-(isMovement?(atlas.floorOverhang?.[index]??0):0);
+   assert(corrected<=1.5,`${atlas.key}/${index} visible feet extend ${corrected}px below corrected anchor`);
+   if(!isMovement||index>=10)assert(corrected>=-1.5,`${atlas.key}/${index} land/reaction floats ${-corrected}px above anchor`);
+  }
+ }
 });

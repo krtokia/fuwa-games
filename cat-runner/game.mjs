@@ -1,7 +1,8 @@
 import { MODES, STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
 import { worldViewport } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
-import { runnerPose, actionFloorLift } from './animation.mjs';
+import { runnerPose, actionFloorLift, reactionPose } from './animation.mjs';
+import { CHARACTER_IDS, CHARACTERS, getCharacter, movementFrame, characterAtlases, atlasFrame, atlasAnchor } from './characters.mjs';
 
 // Phaser owns rendering, scene timing, particles and tweens. Native input supplies tap edges.
 // The deterministic rule model stays separate so the course is testable without a GPU.
@@ -12,6 +13,8 @@ let saved = {};
 try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch {}
 if (typeof saved !== 'object' || Array.isArray(saved)) saved = {};
 // Pace changed in v0.4: start everyone on the new runner speed once, then remember their choice.
+let selectedCharacterId = getCharacter(saved.character).id;
+const character = () => getCharacter(selectedCharacterId);
 let mode = saved.paceVersion === 4 && typeof saved.mode === 'string' && Object.hasOwn(MODES, saved.mode) ? saved.mode : 'normal';
 function freshSeed() {
   if(globalThis.crypto?.getRandomValues) return globalThis.crypto.getRandomValues(new Uint32Array(1))[0];
@@ -34,8 +37,45 @@ let restoreJumpFocus = false;
 
 function save() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(saved)); } catch {} }
 function announce(text) { $('announcement').textContent = text; }
+function paintPortrait(element, record) {
+  const art=record.portrait, crop=art.crop ?? [0,0,1,1];
+  element.style.backgroundImage=`url("${art.path}")`;
+  element.style.backgroundSize=art.columns===1?'contain':`${art.columns/crop[2]*100}% ${art.rows/crop[3]*100}%`;
+  element.style.backgroundPosition=art.columns===1?'center':`${crop[0]/(art.columns-crop[2])*100}% ${crop[1]/(art.rows-crop[3])*100}%`;
+  element.style.aspectRatio=String((art.cellAspect ?? 1.5)*crop[2]/crop[3]);
+}
+function updateCharacterUI() {
+  const current = character();
+  for (const id of CHARACTER_IDS) {
+    const input = $(`character-${id}`), preview = $(`character-preview-${id}`), record = CHARACTERS[id];
+    input.checked = id === current.id;
+    paintPortrait(preview,record);
+  }
+  const portrait = $('character-portrait');
+  paintPortrait(portrait,current);
+  portrait.setAttribute('aria-label', current.description);
+  $('start-title').textContent = `오늘 밤, ${current.withName} 달려요`;
+  $('character-reaction').textContent = `부딪히면 ${current.reaction.description}`;
+  $('pause-copy').textContent = `${current.subject} 기다리고 있어요.`;
+  $('runner-name').textContent = current.name;
+  const star=Object.assign(document.createElement('span'),{className:'title-star',textContent:'✦'});star.setAttribute('aria-hidden','true');
+  $('page-title').replaceChildren(document.createTextNode(`${current.name} 달리기`),star);
+  $('game-canvas').setAttribute('aria-label', `달빛 비치는 골목을 달리는 ${current.name}. 장애물을 넘고 간식과 시간 포션을 모아요.`);
+  $('game-shell').setAttribute('aria-label', `${current.name} 달리기 게임`);
+  document.title = `${current.name} 달리기 · 후와 게임`;
+}
+function selectCharacter(id) {
+  // The picker is only active on the start screen. A resumed/fatal reaction
+  // cannot change character or leak a new pose/sound into an ongoing run.
+  if (game.status !== 'ready' || $('start-card').hidden || !CHARACTER_IDS.includes(id)) return false;
+  selectedCharacterId = id; saved.character = id; save();
+  updateCharacterUI(); scene?.resetRun();
+  announce(`${character().name} 선택. 부딪히면 ${character().reaction.description}.`);
+  return true;
+}
 function overlay(card) {
   $('overlay').hidden = !card;
+  for (const id of CHARACTER_IDS) $(`character-${id}`).disabled = card !== 'start-card';
   for (const id of ['start-card', 'result-card', 'pause-card']) $(id).hidden = id !== card;
 }
 function start(seed=nextSeed) {
@@ -48,7 +88,7 @@ function start(seed=nextSeed) {
   scene.resetRun(); overlay(null);
   $('pause').disabled = false; $('jump').disabled = false;
   $('jump').focus({ preventScroll: true });
-  announce(`${MODES[mode].label} 시작. 한 번 톡 누르면 낮게, 공중에서 한 번 더 누르면 2단 점프해요.`);
+  announce(`${character().name}, ${MODES[mode].label} 시작. 한 번 톡 누르면 낮게, 공중에서 한 번 더 누르면 2단 점프해요.`);
   audio.start(); updateHUD();
 }
 function doJump() {
@@ -95,7 +135,7 @@ function resume() {
   if (game.reactionRemaining <= 0) { scene.tweens.resumeAll(); audio.resume(); }
   overlay(null); $('pause').disabled = false; $('jump').disabled = game.reactionRemaining > 0;
   (game.reactionRemaining > 0 ? $('pause') : $('jump')).focus({ preventScroll:true });
-  updateHUD(); announce(game.reactionRemaining > 0 ? '하악이 끝나면 이어서 달려요.' : '이어서 산책해요.');
+  updateHUD(); announce(game.reactionRemaining > 0 ? `${character().reaction.name} 동작이 끝나면 이어서 달려요.` : '이어서 산책해요.');
 }
 function showStart() {
   endJump(); audio.stop();
@@ -112,7 +152,7 @@ function finish() {
   const key = `score_v11_${game.mode}`;
   const previous = Number.isFinite(saved[key]) ? Math.max(0,saved[key]) : 0;
   saved[key] = Math.max(previous,game.score); saved.mode=mode; saved.paceVersion=4; save();
-  $('result-kicker').textContent = '달빛 골목 · 시간 기록';
+  $('result-kicker').textContent = `${character().name} · 달빛 골목 · 시간 기록`;
   $('result-title').textContent = '오늘은 여기까지!';
   $('result-score').textContent = game.score.toLocaleString();
   $('result-rating').textContent = game.hitCount===0 ? '깔끔한 달리기!' : '다음엔 조금 더 멀리!';
@@ -153,8 +193,8 @@ function updateHUD() {
   $('jump-state').textContent=canDouble?'공중에서 한 번 더 가능':airborne?'착지하면 다시 점프해요':'한 번 톡 = 낮은 점프';
   if(reacting) {
     $('jump').disabled=true; $('jump-label').textContent='잠깐';
-    $('jump-state').textContent=game.remainingTime>0?'후와가 진정하면 다시 달려요':'후와가 잠깐 진정하는 중';
-    $('hint').textContent=`하악! -${game.collisionPenaltySeconds}초 · 잠깐만요…`; $('hint').classList.add('visible');
+    $('jump-state').textContent=game.remainingTime>0?character().reaction.waiting:character().reaction.terminal;
+    $('hint').textContent=`${character().reaction.label} -${game.collisionPenaltySeconds}초 · 잠깐만요…`; $('hint').classList.add('visible');
     $('course-toast').classList.remove('visible'); return;
   }
   if(game.status!=='running') return;
@@ -175,7 +215,7 @@ function updateHUD() {
   const away=next?(next.x-CAT_X-70)/MODES[game.mode].speed:Infinity;
   let text='';
   if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
-  else if(game.elapsed<noticeUntil)text='하악! 다시 달려요!';
+  else if(game.elapsed<noticeUntil)text=character().reaction.resumed;
   else if(!game.grounded&&game.jumpCount>=2)text='사뿐히 착지해요';
   else if(longFlight&&game.jumpCount===1&&jumpAge<secondCue)text='조금 더 날아가요…';
   else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue)text='지금 한 번 더 톡! ↑↑';
@@ -194,10 +234,11 @@ function handleEvent(event) {
   if(event.type==='land') scene.landEffect(event.impactSpeed);
   if(event.type==='recover') { noticeUntil=game.elapsed+.9; scene.puff(CAT_X+66,GROUND-game.y-25,12,0xb6f0df); if(game.remainingTime>0)announce('안전한 바닥으로 돌아왔어요. 다시 달려요.'); }
   if(event.type==='clear') {scene.clearEffect(event.x, event.y);if(game.streak && game.streak%3===0)toast(`${game.streak}번 연속 폴짝!`,1.25);}
-  if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit');audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`하악! ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} ${game.collisionPenaltySeconds}초 감소. ${Math.ceil(game.remainingTime)}초가 남았어요.`);}
+  if(event.type==='hit') {noticeUntil=game.elapsed+.6;endJump();scene.hitEffect();audio.play('hit',{reaction:character().reaction.sound});audio.pause({preserveHit:true});$('jump').disabled=true;$('pause').disabled=false;announce(`${character().name}, ${character().reaction.label} ${event.reason==='fall'?'바닥에서 떨어졌어요.':'장애물에 닿았어요.'} ${game.collisionPenaltySeconds}초 감소. ${Math.ceil(game.remainingTime)}초가 남았어요.`);}
 }
+for (const id of CHARACTER_IDS) $(`character-${id}`).addEventListener('change', () => { if (!selectCharacter(id)) updateCharacterUI(); });
 for(const input of document.querySelectorAll('[name="mode"]')) {
-  input.checked=input.value===mode;input.addEventListener('change',()=>{mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
+  input.checked=input.value===mode;input.addEventListener('change',()=>{if(game.status!=='ready')return;mode=input.value;saved.mode=mode;saved.paceVersion=4;save();});
 }
 $('start').addEventListener('click',()=>start(nextSeed));
 $('again').addEventListener('click',()=>start(game.seed));
@@ -227,6 +268,7 @@ document.addEventListener('keydown',event=>{
 document.addEventListener('keyup',event=>{if(event.code==='Space'||event.code==='ArrowUp')endJump(`key:${event.code}`);});
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
 $('sound').addEventListener('click',()=>{soundOn=audio.setEnabled(!soundOn);$('sound').setAttribute('aria-pressed',String(soundOn));$('sound').textContent=soundOn?'소리 켜짐':'소리 꺼짐';if(soundOn&&game.status==='running'&&game.reactionRemaining<=0){audio.resume();audio.play('collect');}});
+updateCharacterUI();
 document.querySelector('.progress').setAttribute('aria-valuemax',String(STARTING_SECONDS));
 document.querySelector('.card-note').textContent=`${STARTING_SECONDS}초 시작 · 포션 +${POTION_SECONDS}초 · 충돌 -${COLLISION_PENALTY_SECONDS}초`;
 
@@ -240,11 +282,12 @@ function bootPhaser() {
       this.load.image('jump-land', './assets/fuwa-jump-land-v1.png');
       this.load.image('hiss', './assets/fuwa-hiss-front-v1.png');
       this.load.image('alley', './assets/moonlit-alley-v1.png');
+      for (const atlas of characterAtlases()) this.load.image(atlas.key, atlas.path);
       this.load.on('loaderror', () => { loaded = false; $('start').textContent = '그림을 불러오지 못했어요'; announce('그림을 불러오지 못했어요. 페이지를 새로고침해 주세요.'); });
     }
     create() {
       scene = this;
-      if (!['fuwa', 'motion', 'jump-land', 'hiss', 'alley'].every(key => this.textures.exists(key))) return;
+      if (!['fuwa', 'motion', 'jump-land', 'hiss', 'alley', ...characterAtlases().map(atlas => atlas.key)].every(key => this.textures.exists(key))) return;
       this.textures.get('fuwa').add('trimmed', 0, 51, 96, 1449, 810);
       this.textures.get('hiss').add('trimmed', 0, 0, 150, 1170, 1000);
       const atlas = this.textures.get('motion');
@@ -256,6 +299,13 @@ function bootPhaser() {
       }
       const actionAtlas=this.textures.get('jump-land');
       for(let i=0;i<4;i++)actionAtlas.add(`action-${i}`,0,(i%2)*627,Math.floor(i/2)*627+105,627,445);
+      for (const sheet of characterAtlases()) {
+        const texture = this.textures.get(sheet.key), image = texture.getSourceImage();
+        for (let i = 0; i < sheet.count; i++) {
+          const frame = atlasFrame(sheet, i, image.width, image.height);
+          texture.add(`character-${i}`, 0, frame.x, frame.y, frame.width, frame.height);
+        }
+      }
       this.makeTextures();
       this.backdrop = this.add.image(0, 0, 'alley').setOrigin(0).setDepth(-12);
       this.moonGlow = this.add.circle(this.scale.width * .8, 60, 40, 0xf4d99e, .06).setDepth(-11);
@@ -267,7 +317,7 @@ function bootPhaser() {
       this.fireflies = Array.from({length: 15}, (_, i) => this.add.circle((i * 137 + 40) % this.scale.width, 90 + (i * 43) % 170, i % 3 ? 1.5 : 2.2, 0xffdfa0, .25).setDepth(-4));
       this.shadow = this.add.ellipse(CAT_X + 65, GROUND + 5, 115, 13, 0x08252b, .36).setDepth(1);
       this.cat = this.add.image(CAT_X + 66, GROUND + 2, 'fuwa', 'trimmed').setOrigin(.5, 1).setDisplaySize(174, 97.3).setDepth(10);
-      this.hissLabel = this.add.text(CAT_X+66,GROUND-130,'하악!',{fontFamily:'sans-serif',fontSize:'28px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16).setVisible(false);
+      this.reactionLabel = this.add.text(CAT_X+66,GROUND-130,'하악!',{fontFamily:'sans-serif',fontSize:'28px',fontStyle:'bold',color:'#ffe0bb',stroke:'#263b43',strokeThickness:4}).setOrigin(.5).setDepth(16).setVisible(false);
       this.boostRing=this.add.ellipse(CAT_X+66,GROUND+8,78,24).setStrokeStyle(3,0xffdfa0,.9).setVisible(false).setDepth(9);
       this.ring = this.add.ellipse(CAT_X + 70, GROUND - 47, 142, 108).setStrokeStyle(2, 0xffebad, .8).setVisible(false).setDepth(11);
       const resize = size => {
@@ -281,7 +331,7 @@ function bootPhaser() {
       };
       this.scale.on('resize', resize); resize(this.scale);
       loaded = true; $('start').disabled = false; $('start').innerHTML = '달리기 시작 <span aria-hidden="true">→</span>';
-      this.resetRun(); updateHUD();
+      this.resetRun(); updateCharacterUI(); updateHUD();
     }
     makeTextures() {
       const make = (name, w, h, draw) => { const t = this.textures.createCanvas(name, w, h); draw(t.context); t.refresh(); };
@@ -346,7 +396,7 @@ function bootPhaser() {
       this.tweens.killAll(); for (const item of this.fx) item.destroy(); this.fx = [];
       for (const item of this.boxes.values()) item.destroy(); for (const item of this.treats.values()) item.destroy(); this.boxes.clear(); this.treats.clear();
       this.lastFootstep = 0; this.landAt = -1; this.landImpact = 0; this.reactionFootY = GROUND + 1;
-      this.cat?.setAngle(0).setAlpha(1).clearTint(); this.hissLabel?.setVisible(false); this.boostRing?.setVisible(false);
+      this.cat?.setAngle(0).setAlpha(1).clearTint(); this.reactionLabel?.setVisible(false); this.boostRing?.setVisible(false);
       this.rescue?.setVisible(false); this.ring?.setVisible(false);
     }
     puff(x, y, count = 4, color = 0xf6e4b8) {
@@ -371,6 +421,12 @@ function bootPhaser() {
       // Freeze every world tween. The expression uses its own reaction clock.
       this.tweens.pauseAll();
       this.reactionFootY=Math.min(GROUND-game.y+1,this.cameraTop+this.scale.height-24);
+    }
+
+    paintCharacterFrame(atlas,index,pose={stretchX:1,stretchY:1,angle:0}) {
+      const frame=this.textures.get(atlas.key).get(`character-${index}`);
+      const anchor=atlasAnchor(atlas,index), scale=atlas.scale ?? atlas.displayWidth/frame.width;
+      this.cat.setTexture(atlas.key,`character-${index}`).setOrigin(anchor[0],anchor[1]).setScale(scale*pose.stretchX,scale*pose.stretchY).setAngle(pose.angle);
     }
 
     finishEffect() { if (!reducedMotion.matches) { this.puff(this.scale.width * .25, this.cameraTop+150, 14, 0xffd88f); this.puff(this.scale.width * .75, this.cameraTop+150, 14, 0xbfd9a8); } }
@@ -469,7 +525,7 @@ function bootPhaser() {
             if(game.status==='finished') finish();
             else {
               this.tweens.resumeAll();audio.resume({fromGesture:false});
-              announce('후와가 다시 달려요.');
+              announce(`${character().subject} 다시 달려요.`);
             }
           }
         }
@@ -487,33 +543,40 @@ function bootPhaser() {
         updateHUD();
         if(game.status==='finished'&&game.reactionRemaining<=0)finish();
       }
-      const hissing=game.reactionRemaining>0;
-      const running=game.status==='running'&&!hissing, activePose=game.status==='running'||game.status==='paused';
-      const hissAge=game.reactionElapsed;
-      let poseLift=0;
-      if(hissing) {
-        // A new front-facing pose with a brief procedural settle. This is a
-        // pose change, not a falsely claimed frame-by-frame turning animation.
-        const settle=reducedMotion.matches?1:1+.035*Math.sin(Math.PI*Math.min(1,hissAge/.18));
-        this.cat.setTexture('hiss','trimmed').setOrigin(.5,.974).setDisplaySize(124.02*settle,106/settle).setAngle(0);
+      const reacting=game.reactionRemaining>0, current=character();
+      const running=game.status==='running'&&!reacting, activePose=game.status==='running'||game.status==='paused';
+      let poseLift=0, offsetX=0, offsetY=0;
+      if(reacting) {
+        const reaction = reactionPose(current,game.reactionElapsed,{reducedMotion:reducedMotion.matches});
+        offsetX=reaction.offsetX; offsetY=reaction.offsetY;
+        if(current.id==='fuwa') this.cat.setTexture('hiss','trimmed').setOrigin(.5,.974).setDisplaySize(124.02*reaction.stretchX,106*reaction.stretchY).setAngle(0);
+        else this.paintCharacterFrame(current.reaction.atlas,reaction.frame,reaction);
       } else if(activePose) {
         const pose=runnerPose(game,visualClock,{landAt:this.landAt,landImpact:this.landImpact,reducedMotion:reducedMotion.matches});
-        poseLift=actionFloorLift(pose,game);
-        if(pose.texture==='jump-land')this.cat.setTexture('jump-land',`action-${pose.frame}`).setOrigin(.5,351/445).setScale(.32*pose.stretchX,.32*pose.stretchY).setAngle(pose.angle);
-        else this.cat.setTexture('motion',`pose-${pose.frame}`).setOrigin(.5,295/310).setScale(.42*pose.stretchX,.42*pose.stretchY).setAngle(pose.angle);
-      } else this.cat.setTexture('fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setAngle(0);
-      const catFootY=hissing?this.reactionFootY:GROUND-game.y+1-poseLift;
-      this.cat.setPosition(CAT_X+66,catFootY);
-      this.hissLabel.setPosition(CAT_X+66,catFootY-135).setVisible(hissing).setAlpha(hissing?Math.min(1,game.reactionRemaining/.12):0);
+        if(current.id==='fuwa') {
+          poseLift=actionFloorLift(pose,game);
+          if(pose.texture==='jump-land')this.cat.setTexture('jump-land',`action-${pose.frame}`).setOrigin(.5,351/445).setScale(.32*pose.stretchX,.32*pose.stretchY).setAngle(pose.angle);
+          else this.cat.setTexture('motion',`pose-${pose.frame}`).setOrigin(.5,295/310).setScale(.42*pose.stretchX,.42*pose.stretchY).setAngle(pose.angle);
+        } else {
+          const frame=movementFrame(pose);
+          this.paintCharacterFrame(current.movement,frame,pose);
+          const overhang=current.movement.floorOverhang?.[frame] ?? 0;
+          if(Number.isFinite(game.floorHeight))poseLift=Math.max(0,overhang*pose.stretchY-Math.max(0,game.y-game.floorHeight));
+        }
+      } else if(current.id==='fuwa') this.cat.setTexture('fuwa','trimmed').setOrigin(.5,1).setDisplaySize(174,97.3).setAngle(0);
+      else this.paintCharacterFrame(current.movement,0);
+      const catFootY=reacting?this.reactionFootY:GROUND-game.y+1-poseLift;
+      this.cat.setPosition(CAT_X+66+offsetX,catFootY+offsetY);
+      this.reactionLabel.setText(current.reaction.label).setPosition(CAT_X+66,catFootY-135).setVisible(reacting).setAlpha(reacting?Math.min(1,game.reactionRemaining/.12):0);
       const boostAge=game.lastBoostAt===null?Infinity:game.elapsed-game.lastBoostAt;
       const boostVisible=running&&!reducedMotion.matches&&game.jumpCount===2&&boostAge>=0&&boostAge<.2;
       this.boostRing.setPosition(CAT_X+66,catFootY+10).setVisible(boostVisible).setScale(.5+Math.min(.2,boostAge)*3).setAlpha(boostVisible?1-boostAge/.2:0);
       const rescuing=game.elapsed<game.recoveryUntil;
-      this.cat.setAlpha(hissing?1:rescuing?.45:game.invincible>0?.72:1);
-      this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing&&!hissing);
+      this.cat.setAlpha(reacting?1:rescuing?.45:game.invincible>0?.72:1);
+      this.rescue.setPosition(CAT_X+66,GROUND-game.y-48).setVisible(rescuing&&!reacting);
       const heightAboveFloor=game.floorHeight===null?200:Math.max(0,game.y-game.floorHeight);
-      this.shadow.setPosition(CAT_X+65,GROUND-(game.floorHeight??0)+5).setVisible(game.floorHeight!==null&&!rescuing&&!hissing).setScale(Math.max(.42,1-heightAboveFloor/400),1).setAlpha(Math.max(0,.34-heightAboveFloor/1000));
-      this.ring.setPosition(CAT_X+70,catFootY-48).setVisible(game.invincible>0&&!hissing);
+      this.shadow.setPosition(CAT_X+65,GROUND-(game.floorHeight??0)+5).setVisible(game.floorHeight!==null&&!rescuing&&!reacting).setScale(Math.max(.42,1-heightAboveFloor/400),1).setAlpha(Math.max(0,.34-heightAboveFloor/1000));
+      this.ring.setPosition(CAT_X+70,catFootY-48).setVisible(game.invincible>0&&!reacting);
       const distance = reducedMotion.matches ? 0 : game.distance;
       this.backdrop.x = -Math.min(200, distance * .012);
       for (let i = 0; i < this.lamps.length; i++) this.lamps[i].x = ((i * 340 + 240 - distance * .32) % 1700 + 1700) % 1700 - 100;

@@ -48,3 +48,30 @@ export function actionFloorLift(pose, game) {
   if (pose.kind !== 'boost' || pose.frame !== 1 || !Number.isFinite(game.floorHeight)) return 0;
   return clamp(28 * pose.stretchY - Math.max(0, game.y - game.floorHeight), 0, 29);
 }
+
+// These transforms only decorate the selected painted pose. Reaction time is
+// advanced by the engine's separate .85s clock, never the running world clock.
+export function reactionPose(character, age, { reducedMotion = false } = {}) {
+  const time = Math.max(0, Number.isFinite(age) ? age : 0);
+  const pose = { frame: 0, offsetX: 0, offsetY: 0, stretchX: 1, stretchY: 1, angle: 0 };
+  if (character.reaction.kind === 'hiss') {
+    const settle = reducedMotion ? 1 : 1 + .035 * Math.sin(Math.PI * Math.min(1, time / .18));
+    pose.stretchX = settle; pose.stretchY = 1 / settle;
+  } else if (character.reaction.kind === 'tumble') {
+    pose.frame = time < .13 ? 0 : time < .32 ? 1 : time < .55 ? 2 : 3;
+    if (!reducedMotion) {
+      // Art supplies the articulated somersault. Only a small forward scoot and
+      // arc are procedural, returning to the unchanged collision-body anchor.
+      const progress = clamp((time - .08) / .64, 0, 1);
+      pose.offsetX = 15 * Math.sin(Math.PI * progress);
+      pose.offsetY = -7 * Math.sin(Math.PI * progress);
+    }
+  } else if (character.reaction.kind === 'punch') {
+    pose.frame = time < .12 ? 0 : time < .25 ? 1 : time < .52 ? 2 : 3;
+    if (!reducedMotion) {
+      const punch = Math.sin(Math.PI * clamp((time - .25) / .27, 0, 1));
+      pose.stretchX = 1 + .035 * punch; pose.stretchY = 1 + .035 * punch;
+    }
+  }
+  return pose;
+}

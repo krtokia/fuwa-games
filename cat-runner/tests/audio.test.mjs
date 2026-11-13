@@ -218,3 +218,48 @@ test('time potion has a distinct three-note rise, separate from a two-note snack
   const next = f.nodes.length; f.audio.play('collect'); assert.equal(f.nodes.length - next, 2);
   f.audio.pause(); assert.ok(potion.every(n => n.stopped)); f.audio.dispose();
 });
+
+test('roll and punch are distinct original synthesized effects, never hiss samples', () => {
+  const roll=playing(), punch=playing();
+  roll.audio.play('hit',{reaction:'roll'}); punch.audio.play('hit',{reaction:'punch'});
+  const rollVoices=[...roll.audio.voices].filter(voice=>voice.kind==='hit');
+  const punchVoices=[...punch.audio.voices].filter(voice=>voice.kind==='hit');
+  assert.equal(rollVoices.length,3); assert.equal(punchVoices.length,2);
+  assert.equal(roll.buffers.length,0); assert.equal(punch.buffers.length,0);
+  assert(rollVoices.every(voice=>voice.reaction==='roll'&&voice.source.kind==='oscillator'));
+  assert(punchVoices.every(voice=>voice.reaction==='punch'&&voice.source.kind==='oscillator'));
+  assert.notDeepEqual(rollVoices.map(v=>v.source.frequency.events),punchVoices.map(v=>v.source.frequency.events));
+  roll.audio.dispose(); punch.audio.dispose();
+});
+test('preserveHit retains every scheduled roll or punch voice but not music', () => {
+  for(const reaction of ['roll','punch'])for(const action of ['pause','stop']) {
+    const f=playing();f.audio.play('jump');f.audio.play('hit',{reaction});
+    const hits=[...f.audio.voices].filter(v=>v.kind==='hit');
+    f.audio[action]({preserveHit:true});
+    assert.deepEqual([...f.audio.voices],hits);assert.equal(f.timers.size,0);assert.equal(f.audio.running,false);
+    assert(hits.every(v=>!v.source.stopped));assert(hits.every(v=>v.endsAt<=.4));
+    f.audio.pause();assert.equal(f.audio.voices.size,0);assert(hits.every(v=>v.source.stopped));f.audio.dispose();
+  }
+});
+test('roll and punch are bounded on repeated contacts and cleaned on every interruption', () => {
+  for(const reaction of ['roll','punch'])for(const interrupt of ['pause','stop','start','disable','dispose']) {
+    const f=playing();f.audio.play('hit',{reaction});const hits=[...f.audio.voices].filter(v=>v.kind==='hit'),before=f.nodes.length;
+    for(let i=0;i<100;i++)f.audio.play('hit',{reaction});assert.equal(f.nodes.length,before);
+    if(interrupt==='disable')f.audio.setEnabled(false);else f.audio[interrupt]();
+    assert(hits.every(v=>v.source.stopped&&v.nodes.every(n=>n.disconnects===1)));
+    assert.equal([...f.audio.voices].filter(v=>v.kind==='hit').length,0);f.audio.dispose();
+  }
+});
+test('expired reaction oscillators cannot survive delayed callbacks or leak to another cat', () => {
+  const f=playing();f.audio.play('hit',{reaction:'roll'});const old=[...f.audio.voices].filter(v=>v.kind==='hit');
+  f.context.currentTime=.5;f.audio.play('hit',{reaction:'punch'});
+  assert(old.every(v=>v.source.stopped));assert([...f.audio.voices].filter(v=>v.kind==='hit').every(v=>v.reaction==='punch'));
+  f.context.currentTime=1;f.audio.pause({preserveHit:true});assert.equal(f.audio.voices.size,0);f.audio.dispose();
+});
+test('new reaction sounds remain silent while muted or suspended', () => {
+  for(const reaction of ['roll','punch']) {
+    const f=fixture();f.audio.start();f.audio.play('hit',{reaction});assert.equal(f.creates,0);
+    f.audio.setEnabled(true);f.context.state='suspended';const before=f.nodes.length;
+    f.audio.play('hit',{reaction});assert.equal(f.nodes.length,before);f.audio.dispose();
+  }
+});

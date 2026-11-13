@@ -169,3 +169,26 @@ h1{font-size:26px}
 }
 
 .route-note{font-size:11px;color:#496e5d;margin:-3px 0 8px;font-weight:650}
+
+/* Native radios retain keyboard and screen-reader selection behavior. */
+.character-picker{border:0;padding:0;margin:9px 0 5px;display:flex;gap:7px;min-width:0}
+.character-picker legend{font-size:11px;color:#677769;font-weight:750;margin:0 auto 5px}
+.character-picker label{position:relative;flex:1;min-width:0;cursor:pointer}
+.character-picker input{position:absolute;opacity:0;width:1px;height:1px}
+.character-option{display:flex;flex-direction:column;align-items:center;min-height:88px;border:1px solid #b9c5b4;border-radius:11px;padding:2px 3px 5px;color:#52624d;background:#f5efdf}
+.character-option b{font-size:13px;line-height:1.3}
+.character-option small{font-size:10px;line-height:1.4}
+.character-picker input:checked+.character-option{border:2px solid #386654;padding:1px 2px 4px;background:#e3ebd8;color:#244936}
+.character-art{display:block;width:68px;max-width:100%;height:auto;aspect-ratio:1.5;background-repeat:no-repeat;background-position:0 0}
+#character-preview-fuwa{background-position:center}
+.portrait{height:auto;aspect-ratio:1.5;width:94px;background-repeat:no-repeat;background-position:0 0}
+#character-portrait[aria-label^="풍성한"]{background-position:center}
+.character-reaction{font-size:11px;font-weight:700;color:#496e5d;margin:5px 0 8px}
+#runner-name{color:#e6d4a5;font-weight:800}
+.start-card{width:min(360px,100%)}
+@media(max-width:600px){.portrait{height:auto;width:75px}.character-picker{margin-top:6px}.character-option{min-height:79px}.character-art{height:auto;width:60px}.character-reaction{font-size:10px;margin:4px 0 7px}}
+
+.character-heading{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;margin:4px 0}
+.character-heading .portrait{width:62px;flex-shrink:0;margin:0}
+.character-heading h2{font-size:20px;margin:4px 0;max-width:215px;text-align:left}
+@media(max-width:600px){.character-heading{gap:7px;margin:2px 0;min-height:43px}.character-heading .portrait{width:52px}.character-heading h2{font-size:18px}}

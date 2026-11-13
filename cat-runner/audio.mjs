@@ -41,7 +41,7 @@ export class RunnerAudio {
   start() { this.silence(); this.step = 0; this.running = true; if (this.enabled && this.unlock()) this.schedule(); }
   resume({ fromGesture = true } = {}) { this.running = true; if (this.enabled && (fromGesture ? this.unlock() : this.context?.state === 'running')) this.schedule(); }
   pause({ preserveHit = false } = {}) { this.running = false; this.silence({ preserveHit }); }
-  // A fatal collision may finish its brief hiss, but never the music/other effects.
+  // A fatal collision may finish its brief reaction sound, but never the music/other effects.
   // Pause, mute, restart and dispose always silence everything immediately.
   stop({ preserveHit = false } = {}) { this.running = false; this.silence({ preserveHit }); this.step = 0; }
   schedule() {
@@ -63,9 +63,9 @@ export class RunnerAudio {
       this.next += STEP; this.step++;
     }
   }
-  tone(frequency, at, duration, volume, type = 'sine', endFrequency) {
+  tone(frequency, at, duration, volume, type = 'sine', endFrequency, reaction = null) {
     if (!this.context || !this.enabled) return;
-    const voice = { source: null, gain: null, nodes: [] };
+    const voice = { source: null, gain: null, nodes: [], ...(reaction ? { kind: 'hit', reaction, endsAt: at + duration + .02 } : {}) };
     try {
       const osc = voice.source = this.context.createOscillator(); voice.nodes.push(osc);
       const gain = voice.gain = this.context.createGain(); voice.nodes.push(gain);
@@ -119,6 +119,23 @@ export class RunnerAudio {
       source.start(at); source.stop(voice.endsAt);
     } catch { this.releaseVoice(voice, true); /* No noise support must not affect play. */ }
   }
+  reaction(type, at) {
+    if (type === 'hiss') { this.hiss(at); return; }
+    // All collision voices share the hit tag, so preserveHit preserves the
+    // selected effect, not just hiss. Repeated contacts cannot layer effects.
+    for (const voice of this.voices) if (voice.kind === 'hit' && voice.endsAt > at) return;
+    for (const voice of this.voices) if (voice.kind === 'hit') this.releaseVoice(voice, true);
+    if (type === 'roll') {
+      // Original quiet tumbling taps, synthesized locally, never a recording.
+      this.tone(170, at, .09, .038, 'sine', 75, 'roll');
+      this.tone(145, at + .10, .09, .032, 'sine', 62, 'roll');
+      this.tone(115, at + .21, .13, .035, 'triangle', 54, 'roll');
+    } else if (type === 'punch') {
+      // A soft, short swoop and padded paw tap. No hiss or bite variant.
+      this.tone(460, at, .12, .025, 'sine', 140, 'punch');
+      this.tone(120, at + .09, .13, .055, 'triangle', 48, 'punch');
+    }
+  }
   releaseVoice(voice, stop = false) {
     // A failed stop/disconnect must not prevent the remaining nodes being freed.
     if (voice.source) voice.source.onended = null;
@@ -129,7 +146,7 @@ export class RunnerAudio {
     for (const node of voice.nodes) { try { node.disconnect(); } catch {} }
     this.voices.delete(voice);
   }
-  play(type, { combo = 0 } = {}) {
+  play(type, { combo = 0, reaction = 'hiss' } = {}) {
     if (!this.enabled || (type !== 'finish' && !this.running) || this.context?.state !== 'running') return;
     // Finishing owns music shutdown; its final chord may play after stop().
     if (type === 'finish') { this.running = false; this.silence(); }
@@ -138,7 +155,7 @@ export class RunnerAudio {
     if (type === 'boost') { this.tone(490, now, .17, .055, 'triangle', 1100); this.tone(740, now + .04, .12, .035, 'sine', 1480); }
     if (type === 'collect') { const f = hz(84 + Math.min(7, Math.max(0, combo))); this.tone(f, now, .12, .055); this.tone(f * 1.5, now + .055, .16, .035); }
     if (type === 'potion') [76,83,88].forEach((n,i)=>this.tone(hz(n),now+i*.07,.22,.045,'sine'));
-    if (type === 'hit') this.hiss(now);
+    if (type === 'hit') this.reaction(['hiss', 'roll', 'punch'].includes(reaction) ? reaction : 'hiss', now);
     if (type === 'finish') [72,76,79,84].forEach((n,i) => this.tone(hz(n), now + i * .11, .3, .045, 'triangle'));
   }
   silence({ preserveHit = false } = {}) {

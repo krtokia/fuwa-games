@@ -8,32 +8,35 @@ const course=source('course.mjs');
 const physics=source('physics.mjs');
 const rewards=source('rewards.mjs');
 const engine=source('engine.mjs');
-const animation=readFileSync(new URL('../animation.mjs',import.meta.url),'utf8').replaceAll('export ','');
+const characters=source('characters.mjs');
+const animation=source('animation.mjs');
 const controller=readFileSync(new URL('../game.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
-function setup(saved = null, { query = '?seed=10ddcafe' } = {}) {
+function setup(saved = null, { query = '?seed=10ddcafe', autoStart=true, reducedMotion=false } = {}) {
  const elements=new Map();
  class Element {
-  constructor(id=''){this.id=id;this.handlers={};this.style={};this.textContent='';this.attributes={};this.classes=new Set();this.classList={add:(...names)=>names.forEach(name=>this.classes.add(name)),remove:(...names)=>names.forEach(name=>this.classes.delete(name)),contains:name=>this.classes.has(name),toggle:(name,force)=>{const on=force??!this.classes.has(name);on?this.classes.add(name):this.classes.delete(name);return on;}};}
+  constructor(id=''){this.id=id;this.handlers={};this.style={};this.textContent='';this.attributes={};this.dataset={};this.hidden=false;this.disabled=false;this.classes=new Set();this.classList={add:(...names)=>names.forEach(name=>this.classes.add(name)),remove:(...names)=>names.forEach(name=>this.classes.delete(name)),contains:name=>this.classes.has(name),toggle:(name,force)=>{const on=force??!this.classes.has(name);on?this.classes.add(name):this.classes.delete(name);return on;}};}
   addEventListener(type,fn){(this.handlers[type]??=[]).push(fn);}
   emit(type,event={}){for(const fn of this.handlers[type]??[])fn({currentTarget:this,target:this,preventDefault(){},...event});}
   setAttribute(k,v){this.attributes[k]=v;}
+  getAttribute(k){return this.attributes[k]??null;}
   replaceChildren(...items){this.textContent=items.map(x=>x.textContent).join('');}
   focus(){if(!this.disabled)document.activeElement=this;} setPointerCapture(){}
-  matches(tag){return tag==='button'&&['jump','start','pause','resume','again','new-course','restart','sound','change-mode'].includes(this.id)||tag==='input'&&this.id.startsWith('mode-');}
+  matches(tag){return tag==='button'&&['jump','start','pause','resume','again','new-course','restart','sound','change-mode'].includes(this.id)||tag==='input'&&(/^(mode|character)-/.test(this.id));}
  }
  const el=id=>{if(!elements.has(id))elements.set(id,new Element(id));return elements.get(id);};
- const document=Object.assign(new Element('document'),{hidden:false,getElementById:el,querySelector:selector=>el(selector==='.progress'?'progress':'card-note'),querySelectorAll:()=>['gentle','normal'].map(value=>Object.assign(el('mode-'+value),{value})),createTextNode:textContent=>({textContent}),createElement:()=>new Element()});
+ const document=Object.assign(new Element('document'),{hidden:false,getElementById:el,querySelector:selector=>el(selector==='.progress'?'progress':'card-note'),querySelectorAll:selector=>(selector.includes('character')?['fuwa','shuri','nabi']:['gentle','normal']).map(value=>Object.assign(el((selector.includes('character')?'character-':'mode-')+value),{value})),createTextNode:textContent=>({textContent}),createElement:()=>new Element()});
  let randomSeed=0x71a4b500;
  const crypto={getRandomValues(array){for(let i=0;i<array.length;i++)array[i]=++randomSeed;return array;}};
  const location={search:query,href:'https://fuwa.invalid/cat-runner/'+query};
  const window=Object.assign(new Element('window'),{crypto,location});
- class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type){this.calls.push(['play',type]);}}
- const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(){}},matchMedia:()=>({matches:false}),crypto,location,URL,URLSearchParams,console};
- vm.createContext(sandbox);vm.runInContext(course+'\n'+physics+'\n'+rewards+'\n'+engine+'\n'+animation+'\n'+controller,sandbox);
+ class RunnerAudio {constructor(){this.calls=[];}setEnabled(value){return value;}start(){this.calls.push(['start']);}pause(options){this.calls.push(['pause',options]);}resume(options){this.calls.push(['resume',options]);}stop(options){this.calls.push(['stop',options]);}play(type,options){this.calls.push(['play',type,options]);}}
+ const writes=[];
+ const sandbox={RunnerAudio,document,window,localStorage:{getItem:()=>saved === null ? null : JSON.stringify(saved),setItem(key,value){writes.push([key,value]);}},matchMedia:()=>({matches:reducedMotion}),crypto,location,URL,URLSearchParams,console};
+ vm.createContext(sandbox);vm.runInContext(course+'\n'+physics+'\n'+rewards+'\n'+engine+'\n'+characters+'\n'+animation+'\n'+controller,sandbox);
  vm.runInContext("loaded=true;scene={scale:{width:440},resetRun(){},jumpEffect(){},boostEffect(){},puff(){},landEffect(){},collectEffect(){},potionEffect(){},clearEffect(){},hitEffect(){},finishEffect(){},tweens:{pauseAll(){},resumeAll(){}}};",sandbox);
- el('start').emit('click');
+ if(autoStart)el('start').emit('click');
  const tick=seconds=>{let peak=0;for(let i=0;i<seconds*120;i++){vm.runInContext('step(game,1/120)',sandbox);peak=Math.max(peak,vm.runInContext('game.y',sandbox));}return peak;};
- return{el,document,window,tick,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},run:code=>vm.runInContext(code,sandbox),get held(){return vm.runInContext('heldInput',sandbox);}};
+ return{el,document,window,tick,writes,refresh:()=>vm.runInContext('updateHUD()',sandbox),get game(){return vm.runInContext('game',sandbox);},run:code=>vm.runInContext(code,sandbox),get held(){return vm.runInContext('heldInput',sandbox);}};
 }
 const pointer={pointerId:7,isPrimary:true,button:0};
 // Isolate a real authored chunk without inventing flat geometry for its hazards.
@@ -151,16 +154,19 @@ test('new route scores remain separate from older timer and fixed-course records
 
 // Exercise the real Phaser scene update method with drawing-only doubles.
 // No browser/GPU claims: native browser checks remain a separate QA step.
-function renderedUI(mode='normal') {
- const ui=setup({mode,paceVersion:4});
+function renderedUI(mode='normal',characterId='fuwa',options={}) {
+ const ui=setup({mode,paceVersion:4,character:characterId},options);
  const definition=controller.slice(controller.indexOf('class RunnerScene'),controller.indexOf('\n  const host='));
  ui.run('globalThis.Phaser={Scene:class{}};globalThis.TestScene='+definition+';');
  ui.run(`
- const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAlpha')o.alpha=v[0];if(k==='setScale')o.drawScale=v[0];if(k==='lineBetween')(o.lines??=[]).push(v);if(k==='add')(o.children??=[]).push(...v.flat());if(k==='setVisible')o.visible=v[0];if(k==='destroy')o.destroyed=true;return n.proxy;}});};
+ const node=()=>{const n={x:0,y:0,visible:true};return new Proxy(n,{get:(o,k)=>k in o?o[k]:(...v)=>{if(k==='setPosition'){o.x=v[0];o.y=v[1];}if(k==='setTexture'){o.texture=v[0];o.frame=v[1];}if(k==='setAngle')o.angle=v[0];if(k==='setOrigin')o.origin=v;if(k==='setDisplaySize')o.displaySize=v;if(k==='setText')o.text=v[0];if(k==='setAlpha')o.alpha=v[0];if(k==='setScale')o.drawScale=v[0];if(k==='lineBetween')(o.lines??=[]).push(v);if(k==='add')(o.children??=[]).push(...v.flat());if(k==='setVisible')o.visible=v[0];if(k==='destroy')o.destroyed=true;return n.proxy;}});};
  const drawNode=()=>{const n=node();n.proxy=n;return n;};
  scene=new TestScene();scene.scale={width:720,height:420};scene.cameraTop=0;
- for(const name of ['cat','shadow','ring','rescue','backdrop','hissLabel','boostRing'])scene[name]=drawNode();
+ for(const name of ['cat','shadow','ring','rescue','backdrop','reactionLabel','boostRing'])scene[name]=drawNode();
  scene.lamps=[];scene.fireflies=[];scene.puff=()=>{};scene.drawTerrain=()=>{};
+ // Synthetic frame size is sufficient for controller/world invariants. Real
+ // PNG dimensions, alpha and registered crops are covered in ui-contract.
+ scene.textures={get:()=>({get:()=>({width:100,height:100})})};
  scene.drawnText=[];scene.effectCalls=[];scene.tweenCalls=[];
  scene.add={image:(x,y,texture)=>Object.assign(drawNode(),{x,y,texture}),text:(x,y,text)=>{scene.drawnText.push(text);return Object.assign(drawNode(),{x,y,text});},graphics:drawNode,container:drawNode,circle:drawNode};
  scene.clearEffect=scene.finishEffect=()=>{};
@@ -210,7 +216,7 @@ test('manual pause and blur preserve reaction phase and terminal intent',()=>{
 
 test('restart during a reaction removes its pose and cannot fire an old resume',()=>{
  const ui=renderedUI();ui.collide();ui.el('pause').emit('click');ui.el('restart').emit('click');
- assert.equal(ui.game.status,'ready');assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.run('scene.hissLabel.visible'),false);assert.equal(ui.run('pausedStatus'),null);
+ assert.equal(ui.game.status,'ready');assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.run('scene.reactionLabel.visible'),false);assert.equal(ui.run('pausedStatus'),null);
  ui.el('start').emit('click');for(let i=0;i<150;i++)ui.frame();
  assert(ui.game.remainingTime>28&&ui.game.remainingTime<30);assert.equal(ui.game.hitCount,0);assert.equal(ui.game.reactionRemaining,0);
  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),0);
@@ -283,7 +289,7 @@ test('actual timeout presents one result without a collision reaction or delayed
   assert.equal(ui.game.remainingTime,0);assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.game.hitCount,0);
   assert.equal(ui.run('finished'),true);assert.equal(ui.el('result-card').hidden,false);
   assert.equal(ui.el('jump').disabled,true);assert.equal(ui.el('pause').disabled,true);
-  assert.equal(ui.run('scene.hissLabel.visible'),false);assert.equal(ui.run('scene.cat.texture'),'fuwa');
+  assert.equal(ui.run('scene.reactionLabel.visible'),false);assert.equal(ui.run('scene.cat.texture'),'fuwa');
   const frozen=JSON.stringify(ui.game),clock=ui.run('visualClock');
   ui.el('jump').emit('pointerdown',pointer);ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});ui.el('jump').emit('click',{detail:0});
   ui.el('pause').emit('click');ui.el('resume').emit('click');
@@ -365,7 +371,7 @@ test('retry destroys old scene objects and resets low-time, reaction, recovery a
   assert.equal(ui.run('oldBox.destroyed&&oldTreat.destroyed&&oldFx.destroyed'),true);
   assert.equal(ui.run('scene.boxes.size+scene.treats.size+scene.fx.length'),0);
   assert.equal(ui.game.remainingTime,30);assert.equal(ui.game.potions,0);assert.equal(ui.game.recoveryUntil,0);assert.equal(ui.game.invincible,0);
-  assert.equal(ui.run('scene.hissLabel.visible'),false);assert.equal(ui.run('scene.boostRing.visible'),false);
+  assert.equal(ui.run('scene.reactionLabel.visible'),false);assert.equal(ui.run('scene.boostRing.visible'),false);
   assert.equal(ui.run('scene.rescue.visible'),false);assert.equal(ui.run('scene.ring.visible'),false);
   assert.equal(ui.el('time').classList.contains('low-time'),false);assert.equal(ui.el('course-toast').classList.contains('visible'),false);
   assert.equal(ui.el('progress').attributes['aria-valuemax'],'30');assert.equal(ui.el('progress').attributes['aria-valuenow'],'30');
@@ -450,5 +456,204 @@ test('an urgent next step or drop cannot be hidden by the optional star cue',()=
   ui.tick(ui.run('BONUS_SECOND_CUE_SECONDS')+.01);
   ui.run(`game.obstacles[0].cleared=true;game.obstacles.push({...SHAPES[${JSON.stringify(kind)}],kind:${JSON.stringify(kind)},encounterAt:game.elapsed+.2,x:CAT_X+70+MODES[game.mode].speed*.2,hit:false,cleared:false});game.obstacles.sort((a,b)=>a.encounterAt-b.encounterAt);`);
   ui.refresh();assert.equal(ui.el('hint').textContent,kind==='drop'?'낮아지는 길, 그대로 가요':'지금 톡! ↑');
+ }
+});
+
+// v0.12: identity is a controller/rendering choice, never a rules modifier.
+const characterIds=['fuwa','shuri','nabi'];
+const characterNames={fuwa:'후와',shuri:'슈리',nabi:'나비'};
+function worldState(ui) {
+ return ui.run(`JSON.stringify(Object.fromEntries(Object.entries(game).filter(([key])=>!['reactionElapsed','reactionRemaining'].includes(key))))`);
+}
+function poseState(ui) {
+ return ui.run('JSON.stringify({texture:scene.cat.texture,frame:scene.cat.frame,x:scene.cat.x,y:scene.cat.y,angle:scene.cat.angle,scale:scene.cat.drawScale,origin:scene.cat.origin,size:scene.cat.displaySize,label:scene.reactionLabel.text,visible:scene.reactionLabel.visible})');
+}
+function triggerContact(ui,kind='collision',remainingTime=30) {
+ if(kind==='collision') {ui.collide(remainingTime);return;}
+ atPattern(ui,kind==='wall'?'rise-lane':'gap-hop',{lead:.001,response:0});
+ if(kind==='fall')ui.run('game.elapsed=1.5;game.y=-161;game.vy=-650;game.grounded=false;game.jumpCount=1;game.floorHeight=null;');
+ ui.run(`game.remainingTime=${remainingTime};`);ui.frame();
+ assert.equal(ui.game.events.find(event=>event.type==='hit')?.reason,kind);
+}
+function selectedId(ui) {return ui.run('selectedCharacterId');}
+
+// Selection is only allowed on the start screen, and all ways to start again
+// retain the identity until an explicit new radio choice is accepted.
+test('all three start-screen choices persist and survive same/new seed, mode changes and restarts',()=>{
+ for(const id of characterIds) {
+  const ui=setup(null,{autoStart:false});
+  ui.el('character-'+id).emit('change');assert.equal(selectedId(ui),id);
+  assert.equal(ui.el('character-'+id).checked,true);
+  assert.equal(JSON.parse(ui.writes.at(-1)[1]).character,id);
+  assert(ui.el('start-title').textContent.includes(characterNames[id]));
+  assert(ui.el('pause-copy').textContent.includes(characterNames[id]));
+  assert(ui.el('runner-name').textContent.includes(characterNames[id]));
+  assert(ui.el('game-canvas').getAttribute('aria-label').includes(characterNames[id]));
+  const persisted=JSON.parse(ui.writes.at(-1)[1]);assert.equal(selectedId(setup(persisted)),id);
+  ui.el('start').emit('click');const seed=ui.game.seed,course=ui.run('JSON.stringify(game.course)');
+  assert.equal(selectedId(ui),id);assert(ui.el('announcement').textContent.includes(characterNames[id]));
+  // A forged change from a hidden radio must not swap the active runner.
+  const other=characterIds[(characterIds.indexOf(id)+1)%3];ui.el('character-'+other).emit('change');
+  assert.equal(selectedId(ui),id);
+  ui.el('pause').emit('click');ui.el('character-'+other).emit('change');assert.equal(selectedId(ui),id);
+  ui.el('resume').emit('click');ui.run("game.status='finished';game.remainingTime=0;finish();");
+  ui.el('again').emit('click');assert.equal(selectedId(ui),id);assert.equal(ui.game.seed,seed);assert.equal(ui.run('JSON.stringify(game.course)'),course);
+  ui.run("game.status='finished';game.remainingTime=0;finish();");ui.el('new-course').emit('click');
+  assert.equal(selectedId(ui),id);assert.notEqual(ui.game.seed,seed);const nextSeed=ui.game.seed;
+  ui.el('pause').emit('click');ui.el('restart').emit('click');assert.equal(selectedId(ui),id);assert.equal(ui.game.status,'ready');
+  ui.el('mode-gentle').emit('change');ui.el('start').emit('click');
+  assert.equal(selectedId(ui),id);assert.equal(ui.game.mode,'gentle');assert.equal(ui.game.seed,nextSeed);
+  ui.run("game.status='finished';game.remainingTime=0;finish();");ui.el('change-mode').emit('click');
+  assert.equal(selectedId(ui),id);assert.equal(ui.game.status,'ready');ui.el('character-'+other).emit('change');assert.equal(selectedId(ui),other);
+ }
+});
+
+test('invalid or absent saved character falls back safely without changing pace or seed',()=>{
+ for(const character of [undefined,null,'missing','__proto__','constructor',7,{},['nabi']]) {
+  const ui=setup({character,mode:'gentle',paceVersion:4});assert.equal(selectedId(ui),'fuwa');
+  assert.equal(ui.game.mode,'gentle');assert.equal(ui.game.seed,0x10ddcafe);
+ }
+});
+
+test('character choice never changes physics, hitboxes, course, rewards, time or accepted input',()=>{
+ for(const mode of ['normal','gentle']) {
+  const runners=characterIds.map(id=>renderedUI(mode,id));
+  const same=()=>{const expected=worldState(runners[0]);for(const ui of runners){assert.equal(worldState(ui),expected);assert.equal(ui.run('JSON.stringify(catBounds(game))'),runners[0].run('JSON.stringify(catBounds(game))'));}};
+  same();
+  for(let frame=0;frame<260;frame++) {
+   for(const ui of runners) {
+    if([0,38,180,205].includes(frame)){ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);}
+    ui.frame();
+   }
+   same();
+  }
+  for(const ui of runners){ui.run('game.y=0;game.vy=0;game.grounded=true;game.jumpCount=0;');triggerContact(ui,'collision');assert.equal(ui.game.hitCount,1);}same();
+  for(let frame=0;frame<110;frame++){for(const ui of runners)ui.frame();same();}
+ }
+});
+
+test('every character freezes world and timer for exactly .85 seconds for box, wall and pit hits',()=>{
+ for(const id of characterIds)for(const mode of ['normal','gentle'])for(const kind of ['collision','wall','fall'])for(const hz of [30,60,120]) {
+  const ui=renderedUI(mode,id);triggerContact(ui,kind);
+  assert.equal(ui.game.hitCount,1);assert.equal(ui.game.reactionRemaining,.85);
+  const frozen=worldState(ui),clock=ui.run('visualClock');let frames=0;
+  while(ui.game.reactionRemaining>0&&frames<110){ui.frame(1/hz);frames++;assert.equal(worldState(ui),frozen);assert.equal(ui.run('visualClock'),clock);}
+  assert.equal(frames,Math.ceil(.85*hz),`${id}/${mode}/${kind}/${hz}`);
+  assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.game.status,'running');
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='hit').length"),1);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),1);
+  const before=ui.game.elapsed;ui.frame();assert(ui.game.elapsed>before);assert.equal(ui.game.hitCount,1);
+ }
+});
+
+test('every reaction pauses its exact pose on pause, blur or hidden document and releases held input',()=>{
+ for(const id of characterIds)for(const action of ['pause','blur','visibility'])for(const kind of ['collision','wall','fall']) {
+  const ui=renderedUI('normal',id);ui.el('jump').emit('pointerdown',pointer);ui.run('game.y=0;game.vy=0;game.grounded=true;game.jumpCount=0;');triggerContact(ui,kind);
+  assert.equal(ui.held,null);assert.equal(ui.game.jumpHeld,false);
+  for(let i=0;i<20;i++)ui.frame();
+  if(action==='pause')ui.el('pause').emit('click');else if(action==='blur')ui.window.emit('blur');else {ui.document.hidden=true;ui.document.emit('visibilitychange');}
+  assert.equal(ui.game.status,'paused');const frozen=JSON.stringify(ui.game),pose=poseState(ui),clock=ui.run('visualClock');
+  ui.el('jump').emit('pointerdown',pointer);ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});
+  for(let i=0;i<120;i++)ui.frame();
+  assert.equal(JSON.stringify(ui.game),frozen);assert.equal(poseState(ui),pose);assert.equal(ui.run('visualClock'),clock);assert.equal(ui.held,null);
+  ui.document.hidden=false;ui.el('resume').emit('click');assert.equal(ui.game.status,'running');assert.equal(ui.document.activeElement,ui.el('pause'));
+  while(ui.game.reactionRemaining>0)ui.frame();
+  while(ui.el('jump').disabled)ui.frame();
+  assert.equal(ui.document.activeElement,ui.el('jump'));assert.equal(ui.run('restoreJumpFocus'),false);
+  ui.document.emit('keydown',{code:'Space',repeat:true,target:ui.el('jump')});assert.equal(ui.game.jumpCount,0);
+  ui.document.emit('keyup',{code:'Space'});ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});assert.equal(ui.game.jumpCount,1);
+ }
+});
+
+test('fatal box, wall and pit hits preserve the whole character reaction and cannot revive from input or potion',()=>{
+ for(const id of characterIds)for(const kind of ['collision','wall','fall']) {
+  const ui=renderedUI('normal',id);triggerContact(ui,kind,4);
+  assert.equal(ui.game.status,'finished');assert.equal(ui.game.endReason,'collision');assert.equal(ui.game.remainingTime,0);assert.equal(ui.run('finished'),false);
+  ui.run("game.treats.push({id:1999,x:CAT_X+66,y:GROUND-game.y-35,kind:'potion',value:10,taken:false});");
+  const frozen=worldState(ui);
+  ui.el('pause').emit('click');for(let i=0;i<30;i++)ui.frame();assert.equal(ui.game.reactionRemaining,.85);
+  ui.el('resume').emit('click');assert.equal(worldState(ui),frozen);
+  for(let i=0;i<100;i++)ui.frame();assert(ui.game.reactionRemaining>0);assert.equal(ui.run('finished'),false);
+  while(ui.game.reactionRemaining>0)ui.frame();
+  assert.equal(ui.game.status,'finished');assert.equal(ui.run('finished'),true);assert.equal(ui.el('result-card').hidden,false);assert.equal(ui.document.activeElement,ui.el('again'));
+  ui.el('jump').emit('pointerdown',pointer);ui.el('jump').emit('click',{detail:0});ui.document.emit('keydown',{code:'Space',repeat:false,target:ui.el('jump')});
+  ui.el('pause').emit('click');ui.el('resume').emit('click');for(let i=0;i<60;i++)ui.frame();
+  assert.equal(worldState(ui),frozen);assert.equal(ui.game.potions,0);assert.equal(ui.held,null);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),0);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='finish').length"),1);
+ }
+});
+
+test('each selected runner uses its own run, jump, double-jump and landing artwork without delaying input',()=>{
+ for(const id of characterIds) {
+  const ui=renderedUI('normal',id);ui.frame();
+  assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'motion':`${id}-motion`);
+  ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.game.vy,ui.run('JUMP_SPEED'));ui.frame();
+  assert.equal(ui.run('scene.cat.frame'),id==='fuwa'?'pose-6':'character-6');
+  for(let i=0;i<18;i++)ui.frame();ui.el('jump').emit('pointerdown',pointer);ui.window.emit('pointerup',pointer);assert.equal(ui.game.vy,ui.run('SECOND_JUMP_SPEED'));ui.frame();
+  assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'jump-land':`${id}-motion`);assert.equal(ui.run('scene.cat.frame'),id==='fuwa'?'action-0':'character-8');
+  for(let i=0;i<7;i++)ui.frame();assert.equal(ui.run('scene.cat.frame'),id==='fuwa'?'action-1':'character-9');
+  while(!ui.game.grounded)ui.frame();assert.equal(ui.run('scene.cat.frame'),id==='fuwa'?'action-2':'character-10');
+  ui.el('jump').emit('pointerdown',pointer);assert.equal(ui.game.grounded,false);assert.equal(ui.game.vy,ui.run('JUMP_SPEED'));ui.frame();
+  assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'motion':`${id}-motion`);assert.equal(ui.run('scene.cat.frame'),id==='fuwa'?'pose-6':'character-6');
+ }
+});
+
+test('each collision source uses exactly the same chosen reaction sequence, labels and sound',()=>{
+ for(const id of characterIds)for(const reducedMotion of [false,true]) {
+  const sequences=[];
+  for(const kind of ['collision','wall','fall']) {
+   const ui=renderedUI('normal',id,{reducedMotion});triggerContact(ui,kind);
+   const spec=ui.run('character().reaction'),frames=[];
+   assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'hiss':spec.atlas.key);
+   assert.equal(ui.run('scene.reactionLabel.text'),spec.label);
+   assert.equal(ui.el('jump-state').textContent,spec.waiting);assert(ui.el('hint').textContent.startsWith(spec.label));
+   if(kind==='collision')assert(ui.el('announcement').textContent.includes(characterNames[id]));
+   else for(const other of characterIds.filter(other=>other!==id))assert(!ui.el('announcement').textContent.includes(characterNames[other]));
+   assert.equal(ui.run("audio.calls.find(c=>c[0]==='play'&&c[1]==='hit')[2].reaction"),spec.sound);
+   const frozen=worldState(ui),anchorX=ui.run('CAT_X+66');
+   while(ui.game.reactionRemaining>0) {
+    frames.push(ui.run('scene.cat.frame'));assert.equal(worldState(ui),frozen);
+    assert.equal(ui.run('scene.cat.angle'),0); // No single-picture procedural spin.
+    if(id==='nabi'||reducedMotion)assert.equal(ui.run('scene.cat.x'),anchorX);
+    if(id==='shuri')assert(ui.run('Math.abs(scene.cat.x-(CAT_X+66))')<=15);
+    ui.frame();
+   }
+   sequences.push(frames);
+   if(id==='fuwa')assert.deepEqual([...new Set(frames)],['trimmed']);
+   else assert.deepEqual([...new Set(frames)],['character-0','character-1','character-2','character-3']);
+   assert.equal(ui.run('scene.reactionLabel.visible'),false);
+   assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'motion':`${id}-motion`);
+  }
+  assert.deepEqual(sequences[1],sequences[0]);assert.deepEqual(sequences[2],sequences[0]);
+ }
+});
+
+test('restart mid-reaction and repeated character switches cannot retain old art, words, timers or resume callbacks',()=>{
+ for(const initial of characterIds)for(const kind of ['collision','wall','fall']) {
+  const ui=renderedUI('normal',initial);triggerContact(ui,kind);for(let i=0;i<35;i++)ui.frame();ui.el('pause').emit('click');ui.el('restart').emit('click');
+  assert.equal(ui.game.status,'ready');assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.run('scene.reactionLabel.visible'),false);assert.equal(ui.run('pausedStatus'),null);
+  for(const id of [...characterIds].reverse()) {
+   ui.el('character-'+id).emit('change');ui.frame();assert.equal(selectedId(ui),id);
+   assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'fuwa':`${id}-motion`);
+   assert.equal(ui.run('scene.reactionLabel.text'),ui.run('character().reaction.label'));assert.equal(ui.run('scene.reactionLabel.visible'),false);
+   assert(ui.el('start-title').textContent.includes(characterNames[id]));assert(ui.el('character-reaction').textContent.includes(ui.run('character().reaction.description')));
+   assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.game.reactionElapsed,0);assert.equal(ui.game.recoveryUntil,0);assert.equal(ui.game.hitCount,0);
+  }
+  ui.el('start').emit('click');for(let i=0;i<125;i++)ui.frame();
+  assert.equal(ui.game.hitCount,0);assert(ui.game.remainingTime>28&&ui.game.remainingTime<30);assert.equal(ui.held,null);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='resume'&&c[1]?.fromGesture===false).length"),0);
+  assert.equal(ui.el('jump-label').textContent,'점프');assert(!ui.el('hint').textContent.includes('하악'));assert(!ui.el('hint').textContent.includes('데굴'));assert(!ui.el('hint').textContent.includes('냥펀치'));
+ }
+});
+
+test('timeout for each character has no collision pose or sound and same-course replay is immediately clean',()=>{
+ for(const id of characterIds) {
+  const ui=renderedUI('normal',id);ui.run('game.remainingTime=1/120;');ui.frame();
+  assert.equal(ui.game.status,'finished');assert.equal(ui.game.reactionRemaining,0);assert.equal(ui.game.endReason,'timeout');
+  assert.equal(ui.run('scene.cat.texture'),id==='fuwa'?'fuwa':`${id}-motion`);assert.equal(ui.run('scene.reactionLabel.visible'),false);
+  assert.equal(ui.run("audio.calls.filter(c=>c[0]==='play'&&c[1]==='hit').length"),0);
+  assert(ui.el('result-kicker').textContent.includes(characterNames[id]));
+  ui.el('again').emit('click');ui.frame();assert.equal(selectedId(ui),id);assert.equal(ui.game.status,'running');assert.equal(ui.game.hitCount,0);assert.equal(ui.run('scene.reactionLabel.visible'),false);
  }
 });
