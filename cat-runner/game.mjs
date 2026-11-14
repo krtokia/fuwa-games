@@ -1,4 +1,4 @@
-import { MODES, STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
+import { MODES, STARTING_SECONDS, POTION_SECONDS, COLLISION_PENALTY_SECONDS, GROUND, CAT_X, createGame, jump, pressJump, releaseJump, step, jumpCueSeconds, terrainSegments, nextCue, obstacleRouteRelevant, floorAt, advanceReaction, HIT_REACTION_SECONDS, secondJumpCueSeconds } from './engine.mjs';
 import { worldViewport, verticalCameraTop } from './viewport.mjs';
 import { RunnerAudio } from './audio.mjs';
 import { runnerPose, actionFloorLift, reactionPose } from './animation.mjs';
@@ -205,7 +205,7 @@ function updateHUD() {
   }
   if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
   const next=nextCue(game);
-  const longFlight=game.obstacles.find(o=>o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
+  const longFlight=game.obstacles.find(o=>obstacleRouteRelevant(game,o)&&o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
   const jumpAge=game.jumpStartedAt===null?Infinity:game.elapsed-game.jumpStartedAt;
   // Optional star branches never replace a required obstacle cue.
   const bonusFlight=game.obstacles.find(o=>Number.isFinite(o.bonusSecondCue)&&!o.hit&&
@@ -224,7 +224,7 @@ function updateHUD() {
   else if(bonusFlight&&game.jumpCount===1)text='민트 별은 선택 도전이에요';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
-  else if(game.segment?.platforms?.length)text=game.floorHeight>=180?'3층 별길! 끝에서 아래 길로':game.floorHeight>=90?'2층 도착! 다시 두 번 톡 하면 3층':'위층은 선택! 두 번 톡으로 지붕에 착지';
+  else if(game.segment?.platforms?.length)text=game.floorHeight>=180?'3층도 장애물 주의! 끝에서 아래 길로':game.floorHeight>=90?(game.segment.platforms.some(p=>p.level===3)?'2층 도착! 다시 두 번 톡 하면 3층':'2층 허들! 앞의 장애물을 보고 톡'):'위층은 선택! 두 번 톡으로 지붕에 착지';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));
   if(game.elapsed>=toastUntil)$('course-toast').classList.remove('visible');

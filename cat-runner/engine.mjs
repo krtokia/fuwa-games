@@ -37,8 +37,8 @@ export function supportingFloorAt(time,game,y=game.y) {
   const heights=surfacesAt(time,game).map(s=>s.height).filter(height=>height<=y+1e-7);
   return heights.length?Math.max(...heights):null;
 }
-function obstacleRouteRelevant(game,obstacle) {
-  if(!obstacle.upperRoute)return true;
+export function obstacleRouteRelevant(game,obstacle) {
+  if(!obstacle.upperRoute)return !(game.floorHeight>obstacle.floorHeight+obstacle.h+8 && game.y>obstacle.floorHeight+obstacle.h+8);
   return game.y>=obstacle.floorHeight-8 &&
     (game.floorHeight===null||game.floorHeight<=obstacle.floorHeight+8);
 }

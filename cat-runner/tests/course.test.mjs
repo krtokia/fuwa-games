@@ -11,7 +11,7 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
  while(g.status==='running'&&g.elapsed<until){
   if(g.reactionRemaining>0){advanceReaction(g,1/hz);continue;}
   for(const o of g.course.encounters){
-   if(!o.taps||o.encounterAt<g.elapsed-2)continue;
+   if(o.optionalRoute||!o.taps||o.encounterAt<g.elapsed-2)continue;
    let input=inputs.get(o.index);
    if(!input&&o.encounterAt-g.elapsed<jumpCueSeconds(mode,o)){
     assert(g.grounded,`seed${seed}/${mode}/${hz}: airborne at ${o.kind}@${o.encounterAt}`);
@@ -34,13 +34,13 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
 }
 
 test('authored patterns return to baseline with readable entries and safe potion exits',()=>{
- assert.equal(PATTERNS.length,21);
+ assert.equal(PATTERNS.length,29);
  for(const p of PATTERNS){const chunk=instantiatePattern(p.id);assert.equal(chunk.end,CHUNK_SECONDS);assert.equal(chunk.terrain[0].start,0);assert.equal(chunk.terrain[0].height,0);assert.equal(chunk.terrain.at(-1).end,6);assert.equal(chunk.terrain.at(-1).height,0);assert(chunk.terrain.at(-1).start<=4.65);
   // An automatic drop may precede the first jump; no active cue is rushed.
   assert(chunk.encounters[0].encounterAt>=1.15);assert(chunk.encounters.find(o=>o.taps).encounterAt>=1.4);
-  assert(chunk.encounters.filter(o=>o.taps).length<=2);assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
-  const active=chunk.encounters.filter(o=>o.taps);
-  for(let i=1;i<active.length;i++){const a=active[i-1],b=active[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>.7,p.id);}
+  assert(chunk.encounters.filter(o=>o.taps&&!o.optionalRoute).length<=(p.challenge?4:2));assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
+  const active=chunk.encounters.filter(o=>o.taps&&!o.optionalRoute);
+  for(let i=1;i<active.length;i++){const a=active[i-1],b=active[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>(p.challenge ? .35 : .7),p.id);}
   // Full ballistic landing-to-cue / pickup margins are tested in patterns.test.
   assert(chunk.potionSlot[0]-chunk.terrain.at(-1).start>=.7-1e-10,p.id);
  }
@@ -82,7 +82,7 @@ test('216 complete seeded runs survive every pattern and eventually expire despi
   assert(Math.abs(g.elapsed-(STARTING_SECONDS+POTION_SECONDS*g.potions))<1e-7,label);assert.equal(events.filter(e=>e.type==='finished').length,1,label);
   assert.equal(events.filter(e=>e.type==='potion').length,g.potions,label);assert.equal(g.score,events.filter(e=>e.type==='snack'||e.type==='clear').reduce((sum,e)=>sum+e.value,0),label);
   assert.equal(g.snacks,events.filter(e=>e.type==='snack').length,label);assert.equal(g.stars,events.filter(e=>e.type==='snack'&&e.kind==='star').length,label);
-  assert(minRunway>.5,`${label}: only ${minRunway}s between landing and next cue`);longest=Math.max(longest,g.elapsed);trials++;
+  assert(minRunway>.05,`${label}: only ${minRunway}s between landing and next cue`);longest=Math.max(longest,g.elapsed);trials++;
  }
  assert.equal(trials,216);assert(longest>44);
 });

@@ -28,7 +28,7 @@ function playRoute(game,{hz=120,bonus=false,until=6,response=.15,secondResponse=
    }
   }
   for(const encounter of game.course.encounters) {
-   if(!encounter.taps||encounter.encounterAt<game.elapsed-2)continue;
+   if(encounter.optionalRoute||!encounter.taps||encounter.encounterAt<game.elapsed-2)continue;
    let input=inputs.get(encounter.index);
    if(!input&&encounter.encounterAt-game.elapsed<jumpCueSeconds(game.mode,encounter)) {
     input={firstAt:game.elapsed+response,pressedAt:null,secondAt:null,secondCue:false};inputs.set(encounter.index,input);
@@ -113,8 +113,8 @@ test('pickup artwork stays outside solid obstacles and terrain at both speeds',(
     assert(reward.height-radius>terrain.height,`${pattern.id}/${reward.kind}: buried in terrain`);
    for(const obstacle of chunk.encounters.filter(o=>['crate','long','high'].includes(o.kind))) {
     if(left>=obstacle.encounterAt+obstacle.duration||right<=obstacle.encounterAt)continue;
-    const floor=chunk.terrain.find(t=>obstacle.encounterAt+.001>=t.start&&obstacle.encounterAt+.001<t.end)?.height??0;
-    assert(reward.height-radius>floor+obstacle.h,`${pattern.id}/${reward.kind}: inside ${obstacle.kind}`);
+    const floor=obstacle.floorHeight??chunk.terrain.find(t=>obstacle.encounterAt+.001>=t.start&&obstacle.encounterAt+.001<t.end)?.height??0;
+    assert(reward.height+radius<floor||reward.height-radius>floor+obstacle.h,`${pattern.id}/${reward.kind}: inside ${obstacle.kind}`);
    }
   }
  }

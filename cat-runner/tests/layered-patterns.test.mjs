@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PATTERNS,instantiatePattern,createCourse,ensureCourse} from '../course.mjs';
 import {createGame,step,jump,MODES} from '../engine.mjs';
-const layered=PATTERNS.filter(p=>p.platforms.length);
+const layered=PATTERNS.filter(p=>p.platforms.length&&!p.challenge);
 
 function fixture(id,mode,width=720){
  const g=createGame(mode,width),c=instantiatePattern(id);

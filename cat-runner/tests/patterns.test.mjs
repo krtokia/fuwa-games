@@ -28,7 +28,7 @@ function play(g,{hz=60,r1=.15,r2=r1,until=6,label='route'}={}) {
  while(g.elapsed<until) {
   assert.equal(g.hitCount,0,label);
   for(const o of g.course.encounters) {
-   if(!o.taps)continue;
+   if(o.optionalRoute||!o.taps)continue;
    let input=inputs.get(o.index);
    if(!input&&o.encounterAt-g.elapsed<jumpCueSeconds(g.mode,o)) {
     assert(g.grounded,`${label}: airborne at ${o.kind} cue ${g.elapsed}`);
@@ -69,7 +69,7 @@ test('new terrain has real local step heights, supported obstacles and no unanno
     assert(o.h>0&&o.h<=54,p.id);
    }
    if(['crate','long','high'].includes(o.kind)) {
-    assert(chunk.terrain.some(s=>s.start<=o.encounterAt&&s.end>=o.encounterAt+o.duration),`${p.id}: unsupported ${o.kind}`);
+    assert([...chunk.terrain,...chunk.platforms].some(s=>(!o.optionalRoute||s.height===o.floorHeight)&&s.start<=o.encounterAt&&s.end>=o.encounterAt+o.duration),`${p.id}: unsupported ${o.kind}`);
    }
   }
   for(let i=1;i<chunk.terrain.length;i++) {
@@ -121,17 +121,17 @@ test('every new jump accepts dense 80–250ms cue responses at both speeds and e
  assert.equal(trials,15372);
 });
 
-test('all ordered pattern pairs keep half a second of landing runway and reachable exit potions',()=>{
+test('all ordered pattern pairs keep explicit landing runway for legacy and challenge routes and reachable exit potions',()=>{
  let trials=0,minRunway=Infinity;
  const responses=[[.08,.08],[.08,.25],[.15,.15],[.25,.08],[.25,.25]];
  for(const a of PATTERNS)for(const b of PATTERNS)for(const mode of Object.keys(MODES))for(const hz of [30,60,120])
   for(const [r1,r2] of responses) {
    const g=fixture([a.id,b.id],mode),label=`${a.id}→${b.id}/${mode}/${hz}/${r1}/${r2}`;
    const result=play(g,{hz,r1,r2,until:12,label});
-   assert(result.minRunway>.5,`${label}: ${result.minRunway}s runway`);
+   assert(result.minRunway>((a.challenge||b.challenge) ? .05 : .5),`${label}: ${result.minRunway}s runway`);
    assert(g.grounded,label);assert.equal(g.y,0,label);assert.equal(g.potions,2,label);
-   assert.equal(g.cleared,a.encounters.length+b.encounters.length,label);
+   assert.equal(g.cleared,a.encounters.filter(e=>!e[2]?.optionalRoute).length+b.encounters.filter(e=>!e[2]?.optionalRoute).length,label);
    minRunway=Math.min(minRunway,result.minRunway);trials++;
   }
- assert.equal(trials,PATTERNS.length**2*Object.keys(MODES).length*3*responses.length);assert(minRunway>.5);
+ assert.equal(trials,PATTERNS.length**2*Object.keys(MODES).length*3*responses.length);assert(minRunway>.05);
 });

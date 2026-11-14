@@ -65,6 +65,35 @@ export const PATTERNS = Object.freeze([
     encounters:[[1.4,'crate'],[3.6,'crate']], terrain:flat,
     platforms:[[.95,4.5,96,2],[2.45,3.4,192,3],[3.75,4.4,192,3]],
     routePickups:[[1.92,128.5,'fish'],[3.25,224.5,'star'],[4.05,224.5,'star']] },
+  // Challenge routes use three or four decisions, not just taller scenery.
+  // Upper hazards are optional only in route choice, never non-solid artwork.
+  { id:'quick-paws', name:'짧게 네 번, 착지 리듬', difficulty:3, challenge:true,
+    encounters:[[1.4,'crate'],[2.45,'crate'],[3.5,'crate'],[4.55,'crate']], terrain:flat },
+  { id:'high-low-beat', name:'높이 한 번, 낮게 두 번', difficulty:3, challenge:true,
+    encounters:[[1.4,'high'],[3,'crate'],[4.35,'crate']], terrain:flat },
+  { id:'garden-finale', name:'두 상자 뒤 긴 화분', difficulty:4, challenge:true,
+    encounters:[[1.4,'crate'],[2.65,'crate'],[3.95,'long']], terrain:flat },
+  { id:'terrace-relay', name:'오르고, 넘고, 건너기', difficulty:4, challenge:true,
+    encounters:[[1.4,'step'],[2.65,'crate'],[3.9,'gap'],[4.65,'drop']],
+    terrain:[[0,1.4,0],[1.4,3.9,36],[4.6,4.65,36],[4.65,6,0]] },
+  { id:'roof-guards', name:'위층도 방심 금지', difficulty:3, challenge:true,
+    encounters:[[1.4,'crate'],[2.5,'crate',{floorHeight:96,optionalRoute:true,hint:'2층 상자! 올라가거나 넘어요'}],
+      [3,'crate'],[3.85,'crate',{floorHeight:192,optionalRoute:true,hint:'3층 상자! 짧게 톡'}],[4.25,'crate']],
+    terrain:flat, platforms:[[.95,4.4,96,2],[2.4,4.4,192,3]],
+    routePickups:[[1.92,128.5,'fish'],[3.3,224.5,'star'],[3.86,300,'star']] },
+  { id:'broken-roof-relay', name:'지붕 도약, 착지 뒤 다시', difficulty:4, challenge:true,
+    encounters:[[1.4,'crate'],[2.8,'crate'],[3.9,'crate',{floorHeight:192,optionalRoute:true,hint:'착지 뒤 지붕 상자!'}],[4.3,'crate']],
+    terrain:flat, platforms:[[.95,2.7,96,2],[2.4,3.35,192,3],[3.65,4.5,192,3]],
+    routePickups:[[1.92,128.5,'fish'],[3.1,224.5,'star'],[3.8,315,'star']] },
+  { id:'balcony-hurdles', name:'2층 연속 허들', difficulty:3, challenge:true,
+    encounters:[[1.4,'crate'],[2.35,'crate',{floorHeight:96,optionalRoute:true,hint:'2층 상자! 짧게 톡'}],
+      [3,'crate'],[3.7,'long',{floorHeight:96,optionalRoute:true,cueLead:.4,secondCue:.35,hint:'2층 긴 화분! 늦게 한 번 더'}],[4.85,'crate']],
+    terrain:flat, platforms:[[.95,4.9,96,2]],
+    routePickups:[[1.9,128.5,'fish'],[2.4,200,'star'],[4.05,255,'star']] },
+  { id:'drop-and-rebound', name:'지붕에서 내려와 다시 톡', difficulty:4, challenge:true,
+    encounters:[[1.4,'crate'],[2.95,'crate'],[4.65,'crate']],terrain:flat,
+    platforms:[[.95,2.45,96,2],[2.4,3.45,192,3]],
+    routePickups:[[1.92,128.5,'fish'],[3.2,224.5,'star']] },
 ].map(pattern=>Object.freeze({...pattern,
   encounters:Object.freeze(pattern.encounters.map(([at,kind,options])=>Object.freeze(
     options?[at,kind,Object.freeze(options)]:[at,kind]))),
@@ -86,19 +115,19 @@ function random(course) {
 }
 export function difficultyWeights(time) {
   // Later play mixes in demanding combinations, while preserving easy breathers.
-  return time < 24 ? [7,5,1,0] : time < 60 ? [3,5,3,1] : [2,4,5,3];
+  return time < 12 ? [7,5,1,0] : time < 24 ? [2,3,6,0] : time < 60 ? [1,2,6,5] : [1,1,5,8];
 }
 export function instantiatePattern(id,start=0,index=0) {
   const pattern=PATTERNS.find(p=>p.id===id);
   if (!pattern) throw new RangeError(`Unknown runner pattern: ${id}`);
-  return { id:pattern.id, name:pattern.name, difficulty:pattern.difficulty,
+  return { id:pattern.id, name:pattern.name, difficulty:pattern.difficulty, challenge:!!pattern.challenge,
     index,start,end:start+CHUNK_SECONDS,
     encounters:pattern.encounters.map(([at,kind,options],i)=>({ ...SHAPES[kind],...options,
       kind,encounterAt:start+at,patternId:id,chunkIndex:index,localIndex:i,
       // The cue's visible rise must match the actual adjoining surfaces, even
       // when a step begins below baseline or follows an earlier raised step.
       ...(kind==='step'?{h:pattern.terrain.find(([a,b])=>a<=at&&at<b)[2]
-        -pattern.terrain.find(([a,b])=>a<at&&at<=b)[2]}:{}),tutorial:index<2 })),
+        -pattern.terrain.find(([a,b])=>a<at&&at<=b)[2]}:{}),tutorial:index<2 })).sort((a,b)=>a.encounterAt-b.encounterAt),
     terrain:pattern.terrain.map(([a,b,height])=>({start:start+a,end:start+b,height})),
     platforms:pattern.platforms.map(([a,b,height,level])=>({start:start+a,end:start+b,height,level,oneWay:true})),
     pickups:pattern.routePickups.map(([at,absoluteHeight,kind])=>({encounterAt:start+at,absoluteHeight,

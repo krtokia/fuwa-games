@@ -94,7 +94,7 @@ function planChunkRewards(chunk) {
 }
 export function rewardsForEncounter(chunk,encounter) {
   if(!chunk)return [];
-  return planChunkRewards(chunk).filter(d=>d.sourceEncounterAt===encounter.encounterAt);
+  return planChunkRewards(chunk).filter(d=>d.localIndex===encounter.localIndex);
 }
 export function restReward(chunk,pickup) {
   // Authored upper paths use absolute world heights, never a ground-path
