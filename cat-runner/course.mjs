@@ -1,3 +1,4 @@
+import { REQUIRED_PATTERNS } from './required-patterns.mjs';
 // Seeded selection of authored, independently traversable six-second patterns.
 // Geometry is expressed in gameplay seconds so both speeds get the same flight budget.
 export const CHUNK_SECONDS = 6;
@@ -94,12 +95,18 @@ export const PATTERNS = Object.freeze([
     encounters:[[1.4,'crate'],[2.95,'crate'],[4.65,'crate']],terrain:flat,
     platforms:[[.95,2.45,96,2],[2.4,3.45,192,3]],
     routePickups:[[1.92,128.5,'fish'],[3.2,224.5,'star']] },
+  { id:'five-step-beat', name:'다섯 번 톡! 짧은 착지 리듬', difficulty:4, challenge:true,
+    encounters:[[1.25,'crate'],[2.15,'crate'],[3.05,'crate'],[3.95,'crate'],[4.85,'crate']], terrain:flat },
+  ...REQUIRED_PATTERNS,
 ].map(pattern=>Object.freeze({...pattern,
   encounters:Object.freeze(pattern.encounters.map(([at,kind,options])=>Object.freeze(
     options?[at,kind,Object.freeze(options)]:[at,kind]))),
   terrain:Object.freeze(pattern.terrain.map(Object.freeze)),
   platforms:Object.freeze((pattern.platforms??[]).map(Object.freeze)),
   routePickups:Object.freeze((pattern.routePickups??[]).map(Object.freeze)),
+  requiredRoute:!!pattern.requiredRoute,
+  routeInputs:Object.freeze((pattern.routeInputs??[]).map(Object.freeze)),
+  routeCues:Object.freeze((pattern.routeCues??[]).map(Object.freeze)),
   potionSlot:Object.freeze([5.35,5.65]),
 })));
 
@@ -120,7 +127,9 @@ export function difficultyWeights(time) {
 export function instantiatePattern(id,start=0,index=0) {
   const pattern=PATTERNS.find(p=>p.id===id);
   if (!pattern) throw new RangeError(`Unknown runner pattern: ${id}`);
-  return { id:pattern.id, name:pattern.name, difficulty:pattern.difficulty, challenge:!!pattern.challenge,
+  return { id:pattern.id, name:pattern.name, difficulty:pattern.difficulty, challenge:!!pattern.challenge, requiredRoute:pattern.requiredRoute,
+    routeInputs:pattern.routeInputs.map(([at,ordinal])=>({at:at+start,ordinal})),
+    routeCues:pattern.routeCues.map(([a,b,text])=>({start:start+a,end:start+b,text})),
     index,start,end:start+CHUNK_SECONDS,
     encounters:pattern.encounters.map(([at,kind,options],i)=>({ ...SHAPES[kind],...options,
       kind,encounterAt:start+at,patternId:id,chunkIndex:index,localIndex:i,
@@ -131,7 +140,7 @@ export function instantiatePattern(id,start=0,index=0) {
     terrain:pattern.terrain.map(([a,b,height])=>({start:start+a,end:start+b,height})),
     platforms:pattern.platforms.map(([a,b,height,level])=>({start:start+a,end:start+b,height,level,oneWay:true})),
     pickups:pattern.routePickups.map(([at,absoluteHeight,kind])=>({encounterAt:start+at,absoluteHeight,
-      height:absoluteHeight,kind,value:kind==='star'?50:10,optional:true,route:'upper',
+      height:absoluteHeight,kind,value:kind==='star'?50:10,optional:!pattern.requiredRoute,route:pattern.requiredRoute?'required':'upper',
       routeId:`${index}:upper`,patternId:id,chunkIndex:index})),
     potionSlot:pattern.potionSlot.map(at=>at+start) };
 }
@@ -142,8 +151,11 @@ function appendChunk(course) {
     const weights=difficultyWeights(start);
     // Introduce an upper route immediately after the familiar opening, then
     // retain a seeded mix rather than hiding the new layout behind rare rolls.
-    const options=PATTERNS.filter(p=>p.id!=='welcome'&&(index!==1||p.platforms.length&&p.difficulty<=2));
-    const weighted=options.map(p=>({pattern:p,weight:weights[p.difficulty-1]*(p.id===course.lastPatternId ? .6 : 1)}));
+    const mustChangeFloor=index===2||index-course.lastRequiredChunk>=3;
+    const options=PATTERNS.filter(p=>p.id!=='welcome' &&
+      (index!==1||p.platforms.length&&p.difficulty<=2) &&
+      (!mustChangeFloor||p.requiredRoute));
+    const weighted=options.map(p=>({pattern:p,weight:Math.max(mustChangeFloor?1:0,weights[p.difficulty-1])*(p.id===course.lastPatternId ? .3 : 1)}));
     let choice=random(course)*weighted.reduce((sum,p)=>sum+p.weight,0);
     id=weighted.find(p=>(choice-=p.weight)<0)?.pattern.id ?? weighted.at(-1).pattern.id;
   }
@@ -162,13 +174,14 @@ function appendChunk(course) {
     pickup.index=course.totalPickups++;
     pickup.patternId=id;pickup.chunkIndex=index;
   }
+  if(chunk.requiredRoute)course.lastRequiredChunk=index;
   course.lastPatternId=id;course.generatedUntil=chunk.end;
   course.chunks.push(chunk);
 }
 export function createCourse(seed=1) {
   seed=normalizeSeed(seed);
   const course={seed,rngState:seed,nextChunkIndex:0,nextPotionChunk:0,totalEncounters:0,totalPickups:0,
-    generatedUntil:0,lastPatternId:null,chunks:[],terrain:[],platforms:[],encounters:[],pickups:[]};
+    generatedUntil:0,lastRequiredChunk:0,lastPatternId:null,chunks:[],terrain:[],platforms:[],encounters:[],pickups:[]};
   // First potion is in chunk 1 or 2: 11.35–17.65 seconds into the run.
   course.nextPotionChunk=random(course)<.5?1:2;
   return course;

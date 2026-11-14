@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const source=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8').replace(/^import[\s\S]*?from ['"][^'"]+['"];?\n/gm,'').replace(/^export\s+\{[^}]+\}\s+from[^;]+;\n/gm,'').replaceAll('export ','');
-const course=source('course.mjs');
+const course=source('required-patterns.mjs')+'\n'+source('course.mjs');
 const physics=source('physics.mjs');
 const rewards=source('rewards.mjs');
 const engine=source('engine.mjs');

@@ -204,6 +204,7 @@ function updateHUD() {
     restoreJumpFocus=false;
   }
   if(game.elapsed<game.recoveryUntil)$('jump-state').textContent='구조 뒤 다시 달려요';
+  const requiredCue=game.segment?.requiredRoute?game.segment.routeCues.find(c=>game.elapsed>=c.start&&game.elapsed<c.end):null;
   const next=nextCue(game);
   const longFlight=game.obstacles.find(o=>obstacleRouteRelevant(game,o)&&o.taps===2&&!o.hit&&!o.cleared&&game.elapsed>=o.encounterAt-jumpCueSeconds(game.mode,o)-.15&&game.elapsed<=o.encounterAt+o.duration);
   const jumpAge=game.jumpStartedAt===null?Infinity:game.elapsed-game.jumpStartedAt;
@@ -216,6 +217,7 @@ function updateHUD() {
   let text='';
   if(game.elapsed<game.recoveryUntil)text='안전한 바닥으로 구조 중';
   else if(game.elapsed<noticeUntil)text=character().reaction.resumed;
+  else if(requiredCue)text=requiredCue.text;
   else if(!game.grounded&&game.jumpCount>=2)text='사뿐히 착지해요';
   else if(longFlight&&game.jumpCount===1&&jumpAge<secondCue)text='조금 더 날아가요…';
   else if(longFlight&&game.jumpCount===1&&jumpAge>=secondCue)text='지금 한 번 더 톡! ↑↑';
@@ -224,6 +226,7 @@ function updateHUD() {
   else if(bonusFlight&&game.jumpCount===1)text='민트 별은 선택 도전이에요';
   else if(away<jumpCueSeconds(game.mode,next))text=next.taps===0?'낮아지는 길, 그대로 가요':next.taps===2?'지금 톡! 잠깐 뒤 다시 톡':'지금 톡! ↑';
   else if(away<1.3)text=next.hint || '앞에 장애물이 있어요';
+  else if(game.segment?.requiredRoute)text=game.elapsed>game.segment.routeInputs.at(-1).at+.3?'발판 끝에서 아래 길로 사뿐히!':'바닥이 끊겼어요! 생선길 따라 위층으로';
   else if(game.segment?.platforms?.length)text=game.floorHeight>=180?'3층도 장애물 주의! 끝에서 아래 길로':game.floorHeight>=90?(game.segment.platforms.some(p=>p.level===3)?'2층 도착! 다시 두 번 톡 하면 3층':'2층 허들! 앞의 장애물을 보고 톡'):'위층은 선택! 두 번 톡으로 지붕에 착지';
   else if(game.elapsed<3)text='톡! 공중에서 한 번 더 톡!';
   $('hint').textContent=text;$('hint').classList.toggle('visible',Boolean(text));

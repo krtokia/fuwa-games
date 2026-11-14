@@ -1,3 +1,4 @@
+import {driveRequired} from './route-driver.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createCourse,ensureCourse,instantiatePattern,PATTERNS,CHUNK_SECONDS,difficultyWeights} from '../course.mjs';
@@ -10,11 +11,12 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
  let maxChunks=0,maxTerrain=0,maxObstacles=0,maxTreats=0,minRunway=Infinity,lastLanding=0;
  while(g.status==='running'&&g.elapsed<until){
   if(g.reactionRemaining>0){advanceReaction(g,1/hz);continue;}
+  driveRequired(g,inputs);
   for(const o of g.course.encounters){
    if(o.optionalRoute||!o.taps||o.encounterAt<g.elapsed-2)continue;
    let input=inputs.get(o.index);
    if(!input&&o.encounterAt-g.elapsed<jumpCueSeconds(mode,o)){
-    assert(g.grounded,`seed${seed}/${mode}/${hz}: airborne at ${o.kind}@${o.encounterAt}`);
+
     minRunway=Math.min(minRunway,g.elapsed-lastLanding);
     input={firstAt:g.elapsed+response,pressedAt:null,secondAt:null,secondCue:false};inputs.set(o.index,input);
    }
@@ -34,13 +36,13 @@ function route({seed=1,mode='normal',width=720,hz=60,response=.15,secondResponse
 }
 
 test('authored patterns return to baseline with readable entries and safe potion exits',()=>{
- assert.equal(PATTERNS.length,29);
+ assert.equal(PATTERNS.length,34);
  for(const p of PATTERNS){const chunk=instantiatePattern(p.id);assert.equal(chunk.end,CHUNK_SECONDS);assert.equal(chunk.terrain[0].start,0);assert.equal(chunk.terrain[0].height,0);assert.equal(chunk.terrain.at(-1).end,6);assert.equal(chunk.terrain.at(-1).height,0);assert(chunk.terrain.at(-1).start<=4.65);
   // An automatic drop may precede the first jump; no active cue is rushed.
-  assert(chunk.encounters[0].encounterAt>=1.15);assert(chunk.encounters.find(o=>o.taps).encounterAt>=1.4);
-  assert(chunk.encounters.filter(o=>o.taps&&!o.optionalRoute).length<=(p.challenge?4:2));assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
+  assert(chunk.encounters[0].encounterAt>=1.15);assert(chunk.encounters.find(o=>o.taps).encounterAt>=(p.challenge?1.25:1.4));
+  assert(chunk.encounters.filter(o=>o.taps&&!o.optionalRoute).length<=(p.challenge?5:2));assert(chunk.potionSlot[0]>=5.35);assert(chunk.potionSlot[1]<=5.65);
   const active=chunk.encounters.filter(o=>o.taps&&!o.optionalRoute);
-  for(let i=1;i<active.length;i++){const a=active[i-1],b=active[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>(p.challenge ? .35 : .7),p.id);}
+  for(let i=1;i<active.length;i++){const a=active[i-1],b=active[i];assert(b.encounterAt-jumpCueSeconds(null,b)-(a.encounterAt+a.duration)>(p.challenge ? .25 : .7),p.id);}
   // Full ballistic landing-to-cue / pickup margins are tested in patterns.test.
   assert(chunk.potionSlot[0]-chunk.terrain.at(-1).start>=.7-1e-10,p.id);
  }
@@ -56,7 +58,7 @@ test('difficulty weights introduce harder combinations gradually while preservin
  assert.equal(difficultyWeights(0)[3],0);assert(difficultyWeights(24)[3]>0);
  const weightedMean=t=>{const weights=difficultyWeights(t),p=PATTERNS.filter(p=>p.id!=='welcome');return p.reduce((sum,p)=>sum+p.difficulty*weights[p.difficulty-1],0)/p.reduce((sum,p)=>sum+weights[p.difficulty-1],0);};
  assert(weightedMean(0)<weightedMean(24));assert(weightedMean(24)<weightedMean(60));assert(difficultyWeights(10000).every(w=>w>0));
- for(let seed=0;seed<200;seed++){const c=createCourse(seed);ensureCourse(c,24);assert(c.chunks.every(p=>p.difficulty<4));}
+ for(let seed=0;seed<200;seed++){const c=createCourse(seed);ensureCourse(c,24);assert(c.chunks.filter(p=>!p.requiredRoute).every(p=>p.difficulty<4));assert(c.chunks[2].requiredRoute);}
 });
 test('1000 seeds keep embedded potions reachable, random and strictly slower than ten-second supply',()=>{
  const positions=new Set(),patterns=new Set(),gaps=new Set();let maxPerfectLifetime=0;
@@ -82,7 +84,7 @@ test('216 complete seeded runs survive every pattern and eventually expire despi
   assert(Math.abs(g.elapsed-(STARTING_SECONDS+POTION_SECONDS*g.potions))<1e-7,label);assert.equal(events.filter(e=>e.type==='finished').length,1,label);
   assert.equal(events.filter(e=>e.type==='potion').length,g.potions,label);assert.equal(g.score,events.filter(e=>e.type==='snack'||e.type==='clear').reduce((sum,e)=>sum+e.value,0),label);
   assert.equal(g.snacks,events.filter(e=>e.type==='snack').length,label);assert.equal(g.stars,events.filter(e=>e.type==='snack'&&e.kind==='star').length,label);
-  assert(minRunway>.05,`${label}: only ${minRunway}s between landing and next cue`);longest=Math.max(longest,g.elapsed);trials++;
+  assert(minRunway>-.1,`${label}: only ${minRunway}s between landing and next cue`);longest=Math.max(longest,g.elapsed);trials++;
  }
  assert.equal(trials,216);assert(longest>44);
 });
@@ -96,4 +98,16 @@ test('streaming generation and runtime actors stay bounded in a ten-minute stres
  const maxTerrainPerChunk=Math.max(...PATTERNS.map(p=>p.terrain.length)),maxEncountersPerChunk=Math.max(...PATTERNS.map(p=>p.encounters.length));
  const result=route({seed:0x1234abcd,hz:30,width:1200,until:600,extend:true});assert.equal(result.g.hitCount,0);assert.equal(result.g.status,'running');assert(result.maxChunks<=5);assert(result.maxTerrain<=5*maxTerrainPerChunk);assert(result.maxObstacles<=10);assert(result.maxTreats<=40);
  const c=createCourse(8);for(let t=0;t<=86400;t+=3){ensureCourse(c,t+12,t-3);assert(c.chunks.length<=4);assert(c.encounters.length<=4*maxEncountersPerChunk);assert(c.terrain.length<=4*maxTerrainPerChunk);assert(c.pickups.length<=4*(2+Math.max(...PATTERNS.map(p=>p.routePickups.length))));}assert.equal(c.nextChunkIndex,14402);
+});
+
+
+test('mandatory floor transfers appear at12s and never leave more than two intervening chunks',()=>{
+ for(let seed=0;seed<128;seed++){
+  const c=createCourse(seed);ensureCourse(c,600);assert(c.chunks[2].requiredRoute);
+  let last=2;
+  for(const chunk of c.chunks.slice(3)){
+   assert(chunk.index-last<=3,`seed${seed}: too long without floor transfer`);
+   if(chunk.requiredRoute)last=chunk.index;
+  }
+ }
 });

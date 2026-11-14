@@ -14,6 +14,7 @@ export function bonusRouteFor(encounter) {
     ? { bonusRoute:true, bonusSecondCue:encounter.bonusSecondCue??BONUS_SECOND_CUE_SECONDS } : null;
 }
 export function nominalRouteInputs(chunk,{bonus=false}={}) {
+  if(chunk.requiredRoute)return chunk.routeInputs.map(({at,ordinal})=>({at,velocity:ordinal===2?SECOND_JUMP_SPEED:JUMP_SPEED}));
   return chunk.encounters.flatMap(o=>{
     if(!o.taps||o.optionalRoute)return [];
     const first=o.encounterAt-(o.cueLead??.5)+REWARD_RESPONSE_SECONDS;
@@ -29,7 +30,8 @@ export function nominalRouteInputs(chunk,{bonus=false}={}) {
 // Landing uses the same primitive as the live engine, including raised/lower
 // floors. This planner neither runs the timer nor changes the real cat state.
 export function sampleRewardTrajectory(chunk,times,{bonus=false,inputs=nominalRouteInputs(chunk,{bonus})}={}) {
-  const edges=[...new Set(chunk.terrain.flatMap(s=>[s.start,s.end]))];
+  const surfaces=[...chunk.terrain,...(chunk.platforms??[])];
+  const edges=[...new Set(surfaces.flatMap(s=>[s.start,s.end]))];
   const requested=times.map((at,index)=>({at,index})).sort((a,b)=>a.at-b.at);
   const samples=Array(times.length);
   let at=chunk.start,y=rewardFloorAt(chunk.terrain,chunk.start)??0,vy=0,grounded=true,inputIndex=0;
@@ -37,16 +39,17 @@ export function sampleRewardTrajectory(chunk,times,{bonus=false,inputs=nominalRo
     const boundaries=edges.filter(edge=>edge>at&&edge<=end).sort((a,b)=>a-b);
     for(const next of [...boundaries,...(boundaries.at(-1)===end?[]:[end])]) {
       const floor=rewardFloorAt(chunk.terrain,(at+next)/2),duration=next-at;
-      if(!(grounded&&floor===y&&vy<=0)) {
+      const supports=surfaces.filter(s=>(at+next)/2>=s.start&&(at+next)/2<s.end);
+      if(!(grounded&&supports.some(s=>s.height===y)&&vy<=0)) {
         grounded=false;
-        const landing=floor===null?Infinity:landingAfter(y,vy,floor);
-        if(landing>=0&&landing<=duration+1e-10){y=floor;vy=0;grounded=true;}
+        const landing=supports.map(s=>({height:s.height,t:landingAfter(y,vy,s.height)})).filter(s=>s.t>=0&&s.t<=duration+1e-10).sort((a,b)=>a.t-b.t||b.height-a.height)[0];
+        if(landing){y=landing.height;vy=0;grounded=true;}
         else ({y,vy}=flightAfter(y,vy,duration));
       }
       const nextFloor=rewardFloorAt(chunk.terrain,next);
       if(nextFloor!==null&&nextFloor>(floor??-Infinity)&&y<nextFloor-1e-7)
         throw new RangeError(`Reward route meets a wall in ${chunk.id} at ${next}`);
-      if(grounded&&nextFloor!==y)grounded=false;
+      if(grounded&&!surfaces.some(s=>next>=s.start&&next<s.end&&s.height===y))grounded=false;
       at=next;
     }
   }
@@ -101,7 +104,7 @@ export function restReward(chunk,pickup) {
   // projection that would place their rewards inside a roof or down below.
   if(Number.isFinite(pickup.absoluteHeight)) return {
     ...pickup,sampleAt:pickup.encounterAt,height:pickup.absoluteHeight,
-    route:'upper',optional:true,routeId:`${pickup.chunkIndex}:level${pickup.level??2}`,
+    route:pickup.route??'upper',optional:pickup.optional??true,routeId:`${pickup.chunkIndex}:level${pickup.level??2}`,
     routeOrder:pickup.index??0,sourceEncounterAt:pickup.encounterAt,
   };
   if(!chunk)return {...pickup,sampleAt:pickup.encounterAt,route:'main',optional:false};
@@ -109,5 +112,6 @@ export function restReward(chunk,pickup) {
   if(pickup.kind==='fish'&&planChunkRewards(chunk).some(r=>Math.abs(r.sampleAt-pickup.encounterAt)<.24))return null;
   const [sample]=sampleRewardTrajectory(chunk,[pickup.encounterAt]);
   return {sampleAt:pickup.encounterAt,height:sample.height,route:'main',optional:false,
-    routeId:`${chunk.index}:exit`,routeOrder:0,sourceEncounterAt:pickup.encounterAt};
+    routeId:`${chunk.index}:exit`,routeOrder:0,sourceEncounterAt:pickup.encounterAt,
+    ...(chunk.requiredRoute&&pickup.kind!=='potion'?{route:'required'}:{})};
 }

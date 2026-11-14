@@ -1,3 +1,4 @@
+import {driveRequired} from './route-driver.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createGame,step,jump,MODES,FIXED_STEP,jumpCueSeconds,secondJumpCueSeconds} from '../engine.mjs';
@@ -27,6 +28,7 @@ function playRoute(game,{hz=120,bonus=false,until=6,response=.15,secondResponse=
     if(reward&&!reward.optional&&pickup.kind!=='potion')expected.set(rewardKey(reward),reward);
    }
   }
+  driveRequired(game,inputs);
   for(const encounter of game.course.encounters) {
    if(encounter.optionalRoute||!encounter.taps||encounter.encounterAt<game.elapsed-2)continue;
    let input=inputs.get(encounter.index);
@@ -61,14 +63,14 @@ function playRoute(game,{hz=120,bonus=false,until=6,response=.15,secondResponse=
 
 test('all authored pickup trails are jointly collected with150ms cue responses at both speeds and30/60/120Hz',()=>{
  let trials=0;
- for(const pattern of PATTERNS)for(const mode of Object.keys(MODES))for(const hz of [30,60,120])for(const bonus of [false,true]) {
+ for(const pattern of PATTERNS.filter(p=>!p.requiredRoute))for(const mode of Object.keys(MODES))for(const hz of [30,60,120])for(const bonus of [false,true]) {
   const game=fixture(pattern.id,mode),result=playRoute(game,{hz,bonus});
   const rewards=game.course.encounters.flatMap(o=>rewardsForEncounter(game.course.chunks[0],o));
   assert(rewards.length>=3);assert.equal(result.collected.size,rewards.filter(r=>!r.optional||bonus).length,
    `${pattern.id}/${mode}/${hz}/bonus:${bonus}: no unintended alternative pickups`);
   assert(game.grounded);trials++;
  }
- assert.equal(trials,PATTERNS.length*12);
+ assert.equal(trials,PATTERNS.filter(p=>!p.requiredRoute).length*12);
 });
 
 test('fast80ms optional taps preserve all six shared low-lane fish and all four bonus stars',()=>{

@@ -14,7 +14,7 @@ def inline_module(name):
     return re.sub(r'^(?:import [\s\S]*? from [^\n]+|export \{[\s\S]*?\} from [^\n]+);\n', '', text, flags=re.M).replace('export ', '')
 
 physics = inline_module('physics.mjs')
-course = inline_module('course.mjs')
+course = inline_module('required-patterns.mjs') + '\n' + inline_module('course.mjs')
 rewards = inline_module('rewards.mjs')
 engine = inline_module('engine.mjs')
 viewport = (root / 'viewport.mjs').read_text().replace('export ', '')
