@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>간식 팡팡</title>
+<meta name="description" content="고양이 간식을 세 개씩 맞추는 퍼즐">
+<meta name="theme-color" content="#ffd9c7">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
+<link rel="stylesheet" href="style.css">
+<link rel="preload" as="image" href="../cat-outing/cats/01-1.webp">
+</head>
+<body>
+<section id="map" class="screen">
+  <header class="map-top">
+    <a class="chip home" href="/" aria-label="후와 게임 목록으로">←</a>
+    <div class="title">
+      <h1>간식 팡팡</h1>
+      <p>후와네 간식 가게</p>
+    </div>
+    <div class="chip total" aria-label="모은 별"><span class="star" aria-hidden="true">★</span> <b id="total-stars">0</b><small>/<span id="total-max">60</span></small></div>
+  </header>
+  <div class="map-scroll">
+    <div class="path" id="path"></div>
+  </div>
+  <footer class="map-bottom">
+    <button class="chip" id="map-sound" type="button" data-sound>🔊 소리</button>
+  </footer>
+</section>
+
+<section id="game" class="screen" hidden>
+  <header class="hud">
+    <button class="chip icon" id="pause-btn" type="button" aria-label="잠깐 멈춤">❚❚</button>
+    <div class="moves" id="moves-box" aria-live="polite"><small>이동</small><b id="moves">0</b></div>
+    <div class="hud-right">
+      <div class="level-no" id="level-no">1판</div>
+      <div class="goals" id="goals" aria-label="목표"></div>
+    </div>
+  </header>
+  <div class="scorebar" aria-label="점수">
+    <div class="track"><div class="fill" id="score-fill"></div><div class="marks" id="star-marks"></div></div>
+    <b id="score">0</b>
+  </div>
+  <div class="board-wrap">
+    <canvas id="board" aria-label="간식 판. 같은 간식 세 개를 줄로 맞추세요"></canvas>
+  </div>
+</section>
+
+<div class="modal" id="modal" hidden></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
