@@ -153,7 +153,7 @@ function openIntro(id) {
   openModal(el('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
     el('h2', { id: 'dlg-title', text: `${id}판` }),
     rec ? starRow(rec.stars) : null,
-    el('p', { class: 'guest-line' }, el('span', { class: 'face', 'aria-hidden': 'true', style: `background-image:url(${catSrc(guestFor(id))})` }), el('span', { text: `오늘의 손님: ${CATS[guestFor(id)].name}` })),
+    el('p', { class: 'guest-line' }, faceSpan(guestFor(id)), el('span', { text: `오늘의 손님: ${CATS[guestFor(id)].name}` })),
     el('p', { class: 'lead', text: '목표' }),
     el('ul', { class: 'goal-list' }, ...preview.goals.map((g) => el('li', {}, goalIcon(g), el('span', { text: goalLabel(g) })))),
     el('p', { class: 'moves-line' }, '이동 ', el('b', { text: String(l.moves) }), '번 안에'),
@@ -368,6 +368,18 @@ function toMap() {
 // ---------- 구경 고양이 ----------
 
 const catSrc = (id) => `../cat-outing/cats/${CATS[id].img}-1.webp`;
+const peekSrc = (id) => (CATS[id].peek ? `assets/cats/${CATS[id].peek}` : catSrc(id));
+// 동그란 얼굴: 전용 얼굴 그림이 있으면 통째로, 없으면 빌린 그림의 머리 부분을 잘라 쓴다
+function faceSpan(id) {
+  const node = el('span', { class: 'face', 'aria-hidden': 'true' });
+  setFace(node, id);
+  return node;
+}
+function setFace(node, id) {
+  const face = CATS[id].face;
+  node.style.backgroundImage = `url(${face ? `assets/cats/${face}` : catSrc(id)})`;
+  node.classList.toggle('art', !!face);
+}
 let peekTimer = 0;
 let helloTimer = 0;
 
@@ -379,7 +391,7 @@ function renderMission() {
   if (off) return;
   const cat = CATS[state.guest];
   $('#m-label').textContent = `${cat.name}의 부탁`;
-  $('#m-cat').style.backgroundImage = `url(${catSrc(state.guest)})`;
+  setFace($('#m-cat'), state.guest);
   $('#m-icon').src = sprites.iconURL('collect', shownReq.kind);
   const done = shownReq.have >= shownReq.need;
   $('#m-count').textContent = done ? '완료!' : `${shownReq.have}/${shownReq.need}`;
@@ -412,7 +424,8 @@ function peek(kind, gift) {
   } else {
     bubble.append(el('p', { text: kind === 'sulk' ? cat.sulk : cat.hello }));
   }
-  $('#guest-cat').src = catSrc(id);
+  $('#guest-cat').src = peekSrc(id);
+  guest.classList.toggle('art', !!cat.peek);
   // 판 위쪽 높이에 맞춘다
   const game = $('#game').getBoundingClientRect();
   const board = canvas.getBoundingClientRect();

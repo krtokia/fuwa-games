@@ -285,6 +285,14 @@ button { font: inherit; color: inherit; }
 .guest.peek.happy .guest-cat { animation: hop .5s ease-out 2; }
 .guest.peek.sulk .guest-cat { transform: translateX(62%) rotate(-80deg); }
 @keyframes hop { 50% { transform: translateX(40%) translateY(-14px) rotate(-96deg); } }
+/* 전용 빼꼼 그림: 오른쪽 끝에서 잘린 구도라 눕히지 않고 밀어 넣기만 한다 */
+.guest.art { width: 140px; height: 140px; }
+.guest.art .guest-cat { width: 140px; height: 140px; transform: translateX(100%); filter: drop-shadow(-2px 3px 2px rgba(0, 0, 0, .2)); }
+.guest.art.peek .guest-cat { transform: translateX(0); }
+.guest.art.peek.sulk .guest-cat { transform: translateX(22%) rotate(4deg); }
+.guest.art.peek.happy .guest-cat { animation: hop-art .5s ease-out 2; }
+@keyframes hop-art { 50% { transform: translateY(-12px); } }
+.guest.art .bubble { right: 98px; }
 .bubble {
   position: absolute; right: 74px; top: 6px;
   width: max-content; max-width: min(230px, calc(100vw - 110px));
@@ -316,6 +324,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 3px 0 rgba(58, 42, 34, .35);
 }
 .face { display: inline-block; flex: none; border-radius: 50%; background-color: #ffe7c7; background-repeat: no-repeat; background-size: 190%; background-position: 50% 4%; border: 2px solid #3a2a22; }
+.face.art { background-size: cover; background-position: center; }
 .mission .m-cat { width: 30px; height: 30px; }
 .mission .m-icon { width: 28px; height: 28px; }
 .mission b { font-family: var(--display); font-weight: 400; font-size: 18px; }

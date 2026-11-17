@@ -259,7 +259,7 @@ function drawCat(ctx, img) {
   if (img && img.complete && img.naturalWidth) {
     ctx.save();
     ctx.beginPath(); ellipse(ctx, 0.5, 0.5, 0.4, 0.4); ctx.clip();
-    ctx.drawImage(img, 0.1, 0.06, 0.8, 0.8);
+    ctx.drawImage(img, 0.1, 0.1, 0.8, 0.8);
     ctx.restore();
   } else {
     ctx.fillStyle = INK;
@@ -320,7 +320,7 @@ export class Sprites {
     this.cache = new Map();
     this.size = 0;
     this.cat = new Image();
-    this.cat.src = new URL('../../../cat-outing/cats/01-1.webp', import.meta.url).href;
+    this.cat.src = new URL('../../assets/cats/fuwa-face.webp', import.meta.url).href;
     this.ready = new Promise((res) => {
       this.cat.onload = () => { this.cache.clear(); res(); };
       this.cat.onerror = () => res();

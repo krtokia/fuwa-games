@@ -1,5 +1,6 @@
 // 구경 오는 고양이(주인공 셋). 성격이 부탁의 빈도·크기를 정하고, 크기가 보상을 정한다.
-// img: cat-outing/cats/<img>-1.webp
+// img: cat-outing/cats/<img>-1.webp (빌려 쓰는 그림)
+// peek·face: snack-pop/assets/cats/ 의 전용 그림. 없으면 빌려 쓰는 그림으로 대신한다.
 
 // 받침에 따라 '로/으로' (ㄹ 받침은 '로')
 export function withRo(word) {
@@ -11,7 +12,7 @@ export function withRo(word) {
 
 export const CATS = {
   fuwa: {
-    name: '후와', img: '01', rest: 5, need: [8, 10], turns: 5,
+    name: '후와', img: '01', peek: 'fuwa-peek.webp', face: 'fuwa-face.webp', rest: 5, need: [8, 10], turns: 5,
     ask: (item, toy) => (toy ? `…${item}, 놀아 줘도 돼.` : `…${item} 가져와.`),
     hello: '…구경 왔다.',
     thanks: '흠, 나쁘지 않군.',
