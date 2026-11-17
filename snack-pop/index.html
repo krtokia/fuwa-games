@@ -43,8 +43,21 @@
     <div class="track"><div class="fill" id="score-fill"></div><div class="marks" id="star-marks"></div></div>
     <b id="score">0</b>
   </div>
+  <div class="mission-row">
+    <button class="mission off" id="mission" type="button" tabindex="-1">
+      <span class="m-cat face" id="m-cat" aria-hidden="true"></span>
+      <span class="m-label" id="m-label">부탁</span>
+      <img class="m-icon" id="m-icon" alt="">
+      <b id="m-count">0/0</b>
+      <span class="m-turns" id="m-turns" aria-hidden="true"></span>
+    </button>
+  </div>
   <div class="board-wrap">
     <canvas id="board" aria-label="간식 판. 같은 간식 세 개를 줄로 맞추세요"></canvas>
+  </div>
+  <div class="guest" id="guest" aria-live="polite">
+    <div class="bubble" id="bubble"></div>
+    <img class="guest-cat" id="guest-cat" alt="">
   </div>
 </section>
 

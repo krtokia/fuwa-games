@@ -6,6 +6,7 @@ import {
   createState, findGroups, specialFor, swap, findHint, shuffle, applyGravity, bonus,
   canSwap, isWon, holdsPiece, CAT, BOMB, LINE_H, LINE_V,
 } from '../../snack-pop/js/core/board.js';
+import { guestFor } from '../../snack-pop/js/core/cats.js';
 import { LEVELS } from '../../snack-pop/js/core/levels.js';
 import { makeRng } from '../../snack-pop/js/core/rng.js';
 
@@ -103,6 +104,16 @@ function replay(s, before, steps) {
         if (P.r !== cl.r || P.c !== cl.c) E(`convert 위치 불일치 ${cl.id}`);
         P.special = cl.special;
       }
+    } else if (st.type === 'gift') {
+      const P = sim.get(st.id);
+      if (!P) E(`gift 없는 id ${st.id}`);
+      else {
+        if (P.r !== st.r || P.c !== st.c) E(`gift 위치 불일치 ${st.id}`);
+        if (P.special) E(`gift 가 이미 특수인 조각에 ${st.id}`);
+        P.special = st.special; P.kind = st.kind;
+      }
+    } else if (st.type === 'request' || st.type === 'requestEnd') {
+      // 판을 바꾸지 않는 알림
     } else if (st.type === 'shuffle') {
       const ids = new Set(st.pieces.map((p) => p.id));
       if (ids.size !== sim.size) E(`shuffle 조각 수 ${ids.size} != ${sim.size}`);
@@ -140,8 +151,8 @@ function boardOk(s) {
 }
 
 // 한 판을 끝까지 둔다. mode: 'hint' | 'random' | 'mixed', sprinkle: 가끔 특수를 뿌려 조합을 자주 만든다
-function playGame(level, seed, { mode = 'mixed', sprinkle = false, maxMoves = 60 } = {}) {
-  const s = createState(level, seed);
+function playGame(level, seed, { mode = 'mixed', sprinkle = false, maxMoves = 60, guest = guestFor(level.id) } = {}) {
+  const s = createState(level, seed, { guest });
   const rng = makeRng(seed ^ 0x9e3779b9);
   const SP = [LINE_H, LINE_V, BOMB, CAT];
   const errs = [];

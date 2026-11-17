@@ -121,6 +121,7 @@ export class View {
       else if (step.type === 'fall') await this.animFall(step);
       else if (step.type === 'convert') await this.animConvert(step);
       else if (step.type === 'shuffle') await this.animShuffle(step);
+      else if (step.type === 'gift') await this.animGift(step);
       if (onStep) onStep(step, 'end');
     }
   }
@@ -252,6 +253,27 @@ export class View {
       await this.tw.to(sp, { s: 1 }, 220, ease.outBack);
     })));
     if (step.bonus) await this.tw.wait(110);
+  }
+
+  // 구경 고양이가 오른쪽 위에서 선물을 던져 넣는다
+  async animGift(step) {
+    const target = this.pieces.get(step.id);
+    if (!target) return;
+    this.sound.play('throw');
+    const fly = this.addPiece(`gift-${step.id}`, step.kind, step.special, -0.6, this.cols + 0.3, { s: 0.7, rot: 0, glow: 1 });
+    await Promise.all([
+      this.tw.to(fly, { x: step.c }, 620, ease.outQuad),
+      this.tw.to(fly, { y: step.r }, 620, ease.inQuad),
+      this.tw.to(fly, { rot: Math.PI * 4, s: 1.1 }, 620, ease.linear),
+    ]);
+    this.pieces.delete(fly.id);
+    target.kind = step.kind;
+    target.special = step.special;
+    target.s = 1.45;
+    this.sparkle(step.c, step.r);
+    this.burst(step.c, step.r, step.kind, 14);
+    this.sound.play('made');
+    await this.tw.to(target, { s: 1 }, 300, ease.outBack);
   }
 
   async animShuffle(step) {

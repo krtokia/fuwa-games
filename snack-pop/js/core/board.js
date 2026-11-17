@@ -5,6 +5,7 @@
 // 칸:   mask[r][c] 판 안인지, ice[r][c] 얼음 겹, box[r][c] 상자 겹(상자 칸엔 조각 없음)
 
 import { makeRng } from './rng.js';
+import { CATS, rewardFor } from './cats.js';
 
 export const CAT = 'cat';
 export const BOMB = 'bomb';
@@ -22,7 +23,8 @@ const unkey = (k) => [Math.floor(k / 64), k % 64];
 // ---------- 생성 ----------
 
 // layout: 문자열 배열. '.' 칸, 'x' 구멍, 'i'/'I' 얼음 1/2겹, 'b'/'B' 상자 1/2겹
-export function createState(level, seed = Date.now()) {
+// opts.guest: 구경 오는 고양이 id(cats.js). 없으면 부탁 없음
+export function createState(level, seed = Date.now(), opts = {}) {
   const layout = level.layout;
   const rows = layout.length;
   const cols = layout[0].length;
@@ -37,6 +39,10 @@ export function createState(level, seed = Date.now()) {
     movesLeft: level.moves,
     goals: [],
     collected: Array(level.kinds).fill(0),
+    guest: opts.guest && CATS[opts.guest] ? opts.guest : null,
+    request: null,
+    requestRest: 1,
+    lastRequestKind: -1,
   };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -218,7 +224,7 @@ function runClear(s, startKeys, opts) {
     if (keep.has(k) && opts.matched && opts.matched.has(k)) {
       // 새 특수가 생길 자리: 조각은 남지만 맞춘 칸이므로 모으기·점수·얼음은 똑같이 센다
       step.kept.push({ id: p.id, r, c, kind: p.kind });
-      if (p.kind >= 0) { s.collected[p.kind]++; addGoal(s, 'collect', 1, p.kind); }
+      if (p.kind >= 0) countPiece(s, p.kind);
       step.score += PIECE_POINTS * combo;
       if (s.ice[r][c] > 0) {
         s.ice[r][c]--;
@@ -237,7 +243,7 @@ function runClear(s, startKeys, opts) {
     }
     s.cells[r][c] = null;
     step.cleared.push({ id: p.id, r, c, kind: p.kind, special: p.special });
-    if (p.kind >= 0) { s.collected[p.kind]++; addGoal(s, 'collect', 1, p.kind); }
+    if (p.kind >= 0) countPiece(s, p.kind);
     const pts = PIECE_POINTS * combo;
     step.score += pts;
     step.points.push({ r, c, value: pts });
@@ -269,6 +275,13 @@ function runClear(s, startKeys, opts) {
   s.score += step.score;
   addGoal(s, 'score', 0);
   return step;
+}
+
+// 맞춰서 없앤 간식 한 개: 모으기 목표·고양이 부탁에 센다
+function countPiece(s, kind) {
+  s.collected[kind]++;
+  addGoal(s, 'collect', 1, kind);
+  if (s.request && s.request.kind === kind) s.request.have = Math.min(s.request.need, s.request.have + 1);
 }
 
 function addGoal(s, type, n, kind) {
@@ -408,6 +421,7 @@ export function swap(s, a, b) {
   s.movesLeft--;
   steps.push(first);
   settle(s, steps, 2);
+  afterMove(s, steps);
   return { valid: true, steps };
 }
 
@@ -474,6 +488,57 @@ function comboClear(s, pa, pb, a, b, steps) {
     keys.push(key(a[0], a[1]));
   }
   return runClear(s, keys, { consumed, blasts, combo: 1 });
+}
+
+// ---------- 구경 고양이의 부탁 ----------
+
+// 한 수가 끝날 때: 부탁이 채워졌으면 선물, 턴이 다 됐으면 삐짐, 쉬는 턴이 끝났으면 새 부탁
+function afterMove(s, steps) {
+  if (!s.guest) return;
+  const cat = CATS[s.guest];
+  const req = s.request;
+  if (req) {
+    if (req.have >= req.need) {
+      s.request = null;
+      s.requestRest = cat.rest;
+      const gift = giveGift(s, req);
+      if (gift) steps.push(gift);
+      steps.push({ type: 'requestEnd', cat: s.guest, ok: true, kind: req.kind, special: gift ? gift.special : null });
+      if (gift && !findHint(s)) steps.push(shuffle(s));
+      return;
+    }
+    // 이긴 수: 못 채운 부탁은 조용히 접는다(보너스 타임에 세지 않도록). 채운 부탁의 선물은 위에서 그대로 준다
+    if (goalsDone(s)) { s.request = null; return; }
+    req.turnsLeft--;
+    if (req.turnsLeft > 0) return;
+    s.request = null;
+    s.requestRest = cat.rest;
+    if (!goalsDone(s)) steps.push({ type: 'requestEnd', cat: s.guest, ok: false, kind: req.kind });
+    return;
+  }
+  if (s.requestRest > 0) s.requestRest--;
+  if (s.requestRest > 0 || goalsDone(s) || s.movesLeft < cat.turns) return;
+  const kinds = [];
+  for (let k = 0; k < s.kinds; k++) if (k !== s.lastRequestKind) kinds.push(k);
+  const kind = s.rng.pick(kinds);
+  const need = cat.need[0] + s.rng.int(cat.need[1] - cat.need[0] + 1);
+  s.request = { kind, need, have: 0, turnsLeft: cat.turns, turns: cat.turns };
+  s.lastRequestKind = kind;
+  steps.push({ type: 'request', cat: s.guest, kind, need, turns: cat.turns });
+}
+
+// 일반 간식 하나를 선물 특수로 바꾼다
+function giveGift(s, req) {
+  const plain = [];
+  forPieces(s, (p, r, c) => { if (!p.special) plain.push([r, c]); });
+  if (!plain.length) return null;
+  const [r, c] = s.rng.pick(plain);
+  const p = s.cells[r][c];
+  const reward = rewardFor(req.need);
+  if (reward === 'cat') { p.special = CAT; p.kind = -1; }
+  else if (reward === 'bomb') p.special = BOMB;
+  else p.special = s.rng() < 0.5 ? LINE_H : LINE_V;
+  return { type: 'gift', cat: s.guest, id: p.id, r, c, kind: p.kind, special: p.special };
 }
 
 // ---------- 힌트·섞기 ----------

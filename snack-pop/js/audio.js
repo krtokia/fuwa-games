@@ -73,6 +73,8 @@ export class Sound {
       case 'twinkle': this.tone(1568, { dur: 0.15, type: 'sine', vol: 0.12 }); this.tone(2093, { at: 0.06, dur: 0.18, type: 'sine', vol: 0.1 }); break;
       case 'praise': [0, 4, 7].forEach((s, i) => this.tone(note(Math.min(n, 6)) * 2 ** (s / 12), { at: 0.08 + i * 0.06, dur: 0.2, type: 'triangle', vol: 0.14 })); break;
       case 'shuffle': for (let i = 0; i < 6; i++) this.noise({ at: i * 0.06, dur: 0.08, vol: 0.12, from: 1500 + i * 200, to: 2500, q: 3 }); break;
+      case 'throw': this.tone(500, { dur: 0.5, type: 'sine', vol: 0.12, slide: 2.2 }); this.noise({ dur: 0.4, vol: 0.06, from: 600, to: 3000, q: 1.5 }); break;
+      case 'meow': this.tone(700, { dur: 0.12, type: 'triangle', vol: 0.12, slide: 1.4 }); this.tone(980, { at: 0.11, dur: 0.22, type: 'triangle', vol: 0.12, slide: 0.7 }); break;
       case 'click': this.tone(880, { dur: 0.05, type: 'triangle', vol: 0.12 }); break;
       case 'win': [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => this.tone(523.25 * 2 ** (s / 12), { at: i * 0.09, dur: 0.3, type: 'triangle', vol: 0.18 })); break;
       case 'star': this.tone(note(n + 3), { dur: 0.25, type: 'triangle', vol: 0.2 }); this.tone(note(n + 5), { at: 0.05, dur: 0.3, type: 'sine', vol: 0.12 }); break;

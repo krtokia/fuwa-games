@@ -73,7 +73,7 @@ button { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  max-width: 640px;
+  max-width: 480px; /* PC 에서도 폰과 같은 모양: 배치는 하나만 관리 */
   margin: 0 auto;
 }
 
@@ -267,3 +267,65 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- 구경 고양이 ---------- */
+#game { position: relative; overflow: hidden; }
+.guest {
+  position: absolute; right: 0; top: 120px; z-index: 5;
+  width: 120px; height: 120px;
+  pointer-events: none;
+}
+.guest-cat {
+  position: absolute; inset: 0; width: 120px; height: 120px;
+  transform: translateX(110%) rotate(-90deg);
+  transition: transform .38s cubic-bezier(.3, 1.5, .5, 1);
+  filter: drop-shadow(-3px 4px 3px rgba(0, 0, 0, .25));
+}
+.guest.peek .guest-cat { transform: translateX(46%) rotate(-90deg); }
+.guest.peek.happy .guest-cat { animation: hop .5s ease-out 2; }
+.guest.peek.sulk .guest-cat { transform: translateX(62%) rotate(-80deg); }
+@keyframes hop { 50% { transform: translateX(40%) translateY(-14px) rotate(-96deg); } }
+.bubble {
+  position: absolute; right: 74px; top: 6px;
+  width: max-content; max-width: min(230px, calc(100vw - 110px));
+  background: var(--panel); color: var(--ink);
+  border: 3px solid #3a2a22; border-radius: 20px;
+  padding: 8px 14px; text-align: center;
+  box-shadow: 0 4px 0 rgba(58, 42, 34, .35);
+  transform-origin: right center;
+  transform: scale(0); opacity: 0;
+  transition: transform .25s cubic-bezier(.3, 1.6, .5, 1) .12s, opacity .15s .12s;
+}
+.bubble::after {
+  content: ""; position: absolute; right: -12px; top: 22px;
+  border: 9px solid transparent; border-left: 12px solid #3a2a22; border-right: 0;
+}
+.guest.peek .bubble { transform: scale(1); opacity: 1; }
+.bubble p { margin: 0; font-family: var(--display); font-size: 21px; line-height: 1.25; }
+.bubble small { display: block; color: var(--muted); font-size: 15px; }
+.bubble .want { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.bubble .want img { width: 44px; height: 44px; }
+.bubble .want b { font-family: var(--display); font-weight: 400; font-size: 28px; }
+
+/* 미션 칩 */
+.mission {
+  display: flex; align-items: center; gap: 3px; flex: none;
+  min-height: 40px; padding: 2px 8px 2px 3px;
+  border: 3px solid #3a2a22; border-radius: 999px;
+  background: var(--panel); cursor: pointer;
+  box-shadow: 0 3px 0 rgba(58, 42, 34, .35);
+}
+.face { display: inline-block; flex: none; border-radius: 50%; background-color: #ffe7c7; background-repeat: no-repeat; background-size: 190%; background-position: 50% 4%; border: 2px solid #3a2a22; }
+.mission .m-cat { width: 30px; height: 30px; }
+.mission .m-icon { width: 28px; height: 28px; }
+.mission b { font-family: var(--display); font-weight: 400; font-size: 18px; }
+.mission .m-turns { font-size: 9px; letter-spacing: 1px; color: #f2553c; }
+.mission.done { border-color: #43b043; }
+.mission.done b { color: #2f9a2d; }
+.mission.urgent { animation: throb .9s ease-in-out infinite; }
+.mission-row { display: flex; justify-content: flex-end; min-height: 46px; margin-top: 8px; }
+.mission.off { visibility: hidden; }
+.mission .m-label { font-family: var(--display); font-size: 16px; color: var(--muted); margin: 0 2px 0 3px; }
+
+.guest-line { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 6px 0 0; font-family: var(--display); font-size: 19px; }
+.guest-line .face { width: 42px; height: 42px; }

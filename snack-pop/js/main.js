@@ -2,6 +2,7 @@
 
 import { createState, swap, findHint, holdsPiece, isWon, isLost, bonus, starsFor } from './core/board.js';
 import { LEVELS } from './core/levels.js';
+import { CATS, guestFor, isToy } from './core/cats.js';
 import { Sprites, KINDS } from './render/sprites.js';
 import { View } from './render/view.js';
 import { Sound } from './audio.js';
@@ -20,6 +21,8 @@ let state = null;
 let shown = null; // 화면에 보이는 점수·이동·목표(연출에 맞춰 천천히 바뀐다)
 let busy = false;
 let hintTimer = 0;
+let shownReq = null; // 화면에 보이는 부탁 진행
+
 
 // ---------- 공통 ----------
 
@@ -150,6 +153,7 @@ function openIntro(id) {
   openModal(el('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
     el('h2', { id: 'dlg-title', text: `${id}판` }),
     rec ? starRow(rec.stars) : null,
+    el('p', { class: 'guest-line' }, el('span', { class: 'face', 'aria-hidden': 'true', style: `background-image:url(${catSrc(guestFor(id))})` }), el('span', { text: `오늘의 손님: ${CATS[guestFor(id)].name}` })),
     el('p', { class: 'lead', text: '목표' }),
     el('ul', { class: 'goal-list' }, ...preview.goals.map((g) => el('li', {}, goalIcon(g), el('span', { text: goalLabel(g) })))),
     el('p', { class: 'moves-line' }, '이동 ', el('b', { text: String(l.moves) }), '번 안에'),
@@ -165,13 +169,18 @@ function openIntro(id) {
 function startLevel(id) {
   level = LEVELS[id - 1];
   const seed = params.has('seed') ? Number(params.get('seed')) : (Math.random() * 2 ** 31) | 0;
-  state = createState(level, seed);
+  state = createState(level, seed, { guest: guestFor(id) });
+  shownReq = null;
   shown = { score: 0, moves: level.moves, goals: state.goals.map((g) => ({ ...g })) };
   busy = false;
   showScreen('game');
   $('#level-no').textContent = `${id}판`;
   buildHud();
   view.setState(state);
+  renderMission();
+  hideGuest(true);
+  clearTimeout(helloTimer);
+  helloTimer = setTimeout(() => { if (state && !$('#game').hidden && modal.hidden && !shownReq) peek('hello'); }, 500);
   scheduleHint();
 }
 
@@ -220,8 +229,23 @@ function onStep(step, phase) {
       else g.have = shown.score;
       g.have = Math.min(g.target, g.have);
     }
+    if (shownReq) {
+      const got = [...step.cleared, ...step.kept].filter((c) => c.kind === shownReq.kind).length;
+      if (got) { shownReq.have = Math.min(shownReq.need, shownReq.have + got); renderMission(); bump('#m-count'); }
+    }
     bump('#score');
     renderHud();
+  } else if (step.type === 'request') {
+    shownReq = { kind: step.kind, need: step.need, have: 0, turnsLeft: step.turns, turns: step.turns };
+    renderMission();
+    peek('ask');
+  } else if (step.type === 'gift') {
+    peek('thanks', step);
+  } else if (step.type === 'requestEnd') {
+    shownReq = null;
+    renderMission();
+    if (!step.ok) peek('sulk');
+    else if (!step.special) peek('thanks');
   } else if (step.type === 'convert' && step.bonus) {
     shown.moves = Math.max(0, shown.moves - 1);
     shown.score += step.score;
@@ -247,13 +271,17 @@ async function doSwap(a, b) {
   // 연출이 끝나면 엔진 값으로 맞춘다(반올림 차이 방지)
   shown.score = state.score;
   shown.goals = state.goals.map((g) => ({ ...g }));
+  shownReq = state.request ? { ...state.request } : null;
   renderHud();
+  renderMission();
   if (res.valid && (isWon(state) || isLost(state))) await finish();
   else { busy = false; scheduleHint(); }
 }
 
 async function finish() {
   clearHint();
+  shownReq = null;
+  renderMission();
   if (isWon(state)) {
     view.bigText('성공!');
     sound.play('win');
@@ -266,11 +294,13 @@ async function finish() {
       renderHud();
       await view.tw.wait(400);
     }
+    hideGuest(true);
     const stars = Math.max(1, starsFor(state.score, level.stars));
     const prevBest = store.levels[level.id] ? store.levels[level.id].best : 0;
     recordWin(store, level.id, stars, state.score);
     showWin(stars, state.score > prevBest && prevBest > 0);
   } else {
+    hideGuest(true);
     sound.play('lose');
     showLose();
   }
@@ -330,8 +360,77 @@ function openPause() {
 
 function toMap() {
   clearHint();
+  hideGuest(true);
   renderMap();
   showScreen('map');
+}
+
+// ---------- 구경 고양이 ----------
+
+const catSrc = (id) => `../cat-outing/cats/${CATS[id].img}-1.webp`;
+let peekTimer = 0;
+let helloTimer = 0;
+
+function renderMission() {
+  const box = $('#mission');
+  const off = !shownReq || !state || !state.guest;
+  box.classList.toggle('off', off);
+  box.tabIndex = off ? -1 : 0;
+  if (off) return;
+  const cat = CATS[state.guest];
+  $('#m-label').textContent = `${cat.name}의 부탁`;
+  $('#m-cat').style.backgroundImage = `url(${catSrc(state.guest)})`;
+  $('#m-icon').src = sprites.iconURL('collect', shownReq.kind);
+  const done = shownReq.have >= shownReq.need;
+  $('#m-count').textContent = done ? '완료!' : `${shownReq.have}/${shownReq.need}`;
+  $('#m-turns').textContent = '●'.repeat(Math.max(0, shownReq.turnsLeft)) + '○'.repeat(Math.max(0, shownReq.turns - shownReq.turnsLeft));
+  box.classList.toggle('done', done);
+  box.classList.toggle('urgent', !done && shownReq.turnsLeft <= 1);
+  box.setAttribute('aria-label', `${cat.name}의 부탁: ${KINDS[shownReq.kind].name} ${shownReq.need}개, ${shownReq.have}개 줌, ${shownReq.turnsLeft}턴 남음`);
+}
+
+// 고양이가 오른쪽에서 빼꼼 나와 말하고 들어간다
+function peek(kind, gift) {
+  if (!state || !state.guest) return;
+  const id = state.guest;
+  const cat = CATS[id];
+  const guest = $('#guest');
+  const bubble = $('#bubble');
+  bubble.replaceChildren();
+  if (kind === 'ask' && shownReq) {
+    const item = KINDS[shownReq.kind].name;
+    bubble.append(
+      el('div', { class: 'want' }, el('img', { alt: item, src: sprites.iconURL('collect', shownReq.kind) }), el('b', { text: `×${shownReq.need}` })),
+      el('p', { text: cat.ask(item, isToy(shownReq.kind)) }),
+      el('small', { text: `${shownReq.turnsLeft}턴 안에` }));
+  } else if (kind === 'thanks') {
+    bubble.append(el('p', { text: cat.thanks }));
+    if (gift) {
+      const name = gift.special === 'cat' ? '후와 싹쓸이' : gift.special === 'bomb' ? '리본 상자' : '줄무늬 간식';
+      bubble.append(el('small', { text: `🎁 ${name} 선물!` }));
+    }
+  } else {
+    bubble.append(el('p', { text: kind === 'sulk' ? cat.sulk : cat.hello }));
+  }
+  $('#guest-cat').src = catSrc(id);
+  // 판 위쪽 높이에 맞춘다
+  const game = $('#game').getBoundingClientRect();
+  const board = canvas.getBoundingClientRect();
+  guest.style.top = `${Math.max(0, board.top - game.top + board.height * 0.08)}px`;
+  guest.classList.toggle('sulk', kind === 'sulk');
+  guest.classList.toggle('happy', kind === 'thanks');
+  guest.classList.add('peek');
+  sound.play('meow');
+  clearTimeout(peekTimer);
+  peekTimer = setTimeout(() => hideGuest(), kind === 'ask' ? 2800 : 2000);
+}
+
+function hideGuest(now = false) {
+  clearTimeout(peekTimer);
+  if (now) clearTimeout(helloTimer);
+  const guest = $('#guest');
+  guest.classList.remove('peek');
+  if (now) guest.classList.remove('sulk', 'happy');
 }
 
 // ---------- 힌트 ----------
@@ -396,6 +495,7 @@ canvas.addEventListener('pointercancel', (e) => { if (drag && drag.id === e.poin
 
 // ---------- 버튼 ----------
 
+$('#mission').addEventListener('click', () => { sound.unlock(); peek('ask'); });
 $('#pause-btn').addEventListener('click', () => { sound.unlock(); sound.play('click'); openPause(); });
 $('#map-sound').addEventListener('click', toggleSound);
 document.addEventListener('keydown', (e) => {
