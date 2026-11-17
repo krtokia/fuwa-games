@@ -128,3 +128,37 @@ Edit the provided sprite: keep the cat, pose, face, colors, style and framing ex
   - 기뻐함은 통통 뛰고, 삐짐은 살짝 물러나 기운다. 표정 그림이 오기 전까지 같은 그림을 쓴다.
 - 얼굴: 부탁 칩, "오늘의 손님", 특수 블록 "후와 싹쓸이"가 `fuwa-face.webp`를 쓴다.
 - 슈리·나비는 아직 빌린 그림이다(전용 그림이 없으면 예전 방식으로 대신 쓴다). 지도 표시와 창 그림도 아직 빌린 그림이다.
+
+
+## 추가 고양이 원본 13장 (2026-11-18)
+
+기존 승인 후와 기본 빼꼼을 유지하고, 다음 PNG 원본을 추가했다. 실사 정면·3/4 기준과 후와 승인본을 참조했으며, 같은 기본 빼꼼을 편집하여 기쁨·삐짐을 만들었다.
+
+- 후와: `fuwa-peek-happy.png`, `fuwa-peek-sulk.png`, `fuwa-face.png`, `fuwa-sit.png`, `fuwa-cheer.png`
+- 슈리: `shuri-peek.png`, `shuri-peek-happy.png`, `shuri-peek-sulk.png`, `shuri-face.png`
+- 나비: `nabi-peek.png`, `nabi-peek-happy.png`, `nabi-peek-sulk.png`, `nabi-face.png`
+
+저장 위치는 모두 `snack-pop/assets/cats/`. **이 추가 커밋은 그림 원본 납품만이며 게임 연결은 바꾸지 않는다.** 기존 WebP 및 코드 연결은 그대로 보존했다. 새 PNG가 자동으로 게임에 적용된다고 가정하지 않는다.
+
+### 실제 파일 검사와 통합 시 남은 작업
+
+이미지 생성기가 지정 크기 대신 1254×1254를 출력했다. 아래는 실제 검사값이며 아직 요청서의 512×512/256×256 배포 규격을 충족하지 않는다. PNG에 진짜 알파 채널이 있지만 빼꼼 여백에 알파 1/255 수준 잔여 픽셀이 남을 수 있다. 개발 통합 단계에서 기존 후와와 같은 알파 정리·크기 변환·WebP 생성이 필요하다. 캐릭터별 구도와 표정은 육안 검사했으며 픽셀 단위 동일 정렬, 30px 원형 얼굴 크롭, 실제 게임 화면 가독성은 별도 검증해야 한다.
+
+| 파일 | 원본 크기 | 모드 | 왼쪽 30% 최대 알파(0~255) |
+|---|---|---|---|
+| `fuwa-cheer.png` | 1254×1254 | RGBA | 해당 없음 |
+| `fuwa-face.png` | 1254×1254 | RGBA | 해당 없음 |
+| `fuwa-peek-happy.png` | 1254×1254 | RGBA | 1 |
+| `fuwa-peek-sulk.png` | 1254×1254 | RGBA | 1 |
+| `fuwa-peek.png` | 1254×1254 | RGBA | 1 |
+| `fuwa-sit.png` | 1254×1254 | RGBA | 해당 없음 |
+| `nabi-face.png` | 1254×1254 | RGBA | 해당 없음 |
+| `nabi-peek-happy.png` | 1254×1254 | RGBA | 1 |
+| `nabi-peek-sulk.png` | 1254×1254 | RGBA | 1 |
+| `nabi-peek.png` | 1254×1254 | RGBA | 1 |
+| `shuri-face.png` | 1254×1254 | RGBA | 해당 없음 |
+| `shuri-peek-happy.png` | 1254×1254 | RGBA | 1 |
+| `shuri-peek-sulk.png` | 1254×1254 | RGBA | 1 |
+| `shuri-peek.png` | 1254×1254 | RGBA | 1 |
+
+눈 깜빡임 전용 프레임과 애니메이션은 이번 그림 목록에 포함하지 않았다. 기존의 등장→깜빡임→퇴장 문단은 계속 제안이며, 이 커밋에서 구현한 연출이 아니다.
