@@ -133,3 +133,19 @@ test('모든 레벨: 손님과 함께 힌트로 끝까지 — 판 일관성', ()
     assert.ok(requests >= 1, `레벨 ${l.id} 부탁이 한 번은 나온다`);
   }
 });
+
+test('무작위 손님: 셋 다 나오고, 바로 전 손님은 연달아 오지 않는다', async () => {
+  const { pickGuest } = await import('../../snack-pop/js/core/cats.js');
+  const { makeRng } = await import('../../snack-pop/js/core/rng.js');
+  const rng = makeRng(7);
+  const seen = new Set();
+  let last = null;
+  for (let i = 0; i < 60; i++) {
+    const g = pickGuest(rng, last);
+    assert.ok(g in CATS);
+    assert.notEqual(g, last);
+    seen.add(g);
+    last = g;
+  }
+  assert.equal(seen.size, 3);
+});

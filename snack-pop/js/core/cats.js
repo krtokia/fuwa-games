@@ -11,7 +11,7 @@ export function withRo(word) {
 
 export const CATS = {
   fuwa: {
-    name: '후와', rest: 5, need: [8, 10], turns: 5,
+    name: '후와', rest: 5, need: [8, 9], turns: 6,
     ask: (item, toy) => (toy ? `…${item}, 놀아 줘도 돼.` : `…${item} 가져와.`),
     hello: '…구경 왔다.',
     thanks: '흠, 나쁘지 않군.',
@@ -34,7 +34,13 @@ export const CATS = {
 };
 
 export const GUEST_ORDER = ['fuwa', 'shuri', 'nabi'];
+// 판마다 고정 순서(테스트·시뮬레이션용). 게임에서는 pickGuest 로 무작위
 export const guestFor = (levelId) => GUEST_ORDER[(levelId - 1) % GUEST_ORDER.length];
+// 무작위 손님. 바로 전 손님은 피해서 같은 고양이가 연달아 오지 않게 한다
+export function pickGuest(rand = Math.random, last = null) {
+  const pool = GUEST_ORDER.filter((id) => id !== last);
+  return pool[Math.floor(rand() * pool.length)];
+}
 
 // 간식 0 생선 · 2 발바닥 쿠키 · 5 별사탕 / 장난감 1 털실 · 3 방울 · 4 캣닢
 export const isToy = (kind) => kind === 1 || kind === 3 || kind === 4;

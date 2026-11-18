@@ -2,7 +2,7 @@
 
 import { createState, swap, findHint, holdsPiece, isFrozen, isWon, isLost, bonus, starsFor } from './core/board.js';
 import { LEVELS } from './core/levels.js';
-import { CATS, guestFor, isToy, peekArt, faceArt } from './core/cats.js';
+import { CATS, pickGuest, isToy, peekArt, faceArt } from './core/cats.js';
 import { Sprites, KINDS } from './render/sprites.js';
 import { View } from './render/view.js';
 import { Sound } from './audio.js';
@@ -146,14 +146,23 @@ function toggleSound() {
   updateSoundButtons();
 }
 
+// 다음 판의 손님: 판 소개 창에서 정해 두고 그 판을 시작할 때 쓴다(다시 하기는 새로 뽑는다)
+let nextGuest = null;
+let lastGuest = null;
+function drawGuest() {
+  nextGuest = pickGuest(Math.random, lastGuest);
+  return nextGuest;
+}
+
 function openIntro(id) {
   const l = LEVELS[id - 1];
+  const guest = drawGuest();
   const preview = createState(l, 1);
   const rec = store.levels[id];
   openModal(el('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
     el('h2', { id: 'dlg-title', text: `${id}판` }),
     rec ? starRow(rec.stars) : null,
-    el('p', { class: 'guest-line' }, faceSpan(guestFor(id)), el('span', { text: `오늘의 손님: ${CATS[guestFor(id)].name}` })),
+    el('p', { class: 'guest-line' }, faceSpan(guest), el('span', { text: `오늘의 손님: ${CATS[guest].name}` })),
     el('p', { class: 'lead', text: '목표' }),
     el('ul', { class: 'goal-list' }, ...preview.goals.map((g) => el('li', {}, goalIcon(g), el('span', { text: goalLabel(g) })))),
     el('p', { class: 'moves-line' }, '이동 ', el('b', { text: String(l.moves) }), '번 안에'),
@@ -167,10 +176,13 @@ function openIntro(id) {
 // ---------- 게임 ----------
 
 function startLevel(id) {
-  preloadGuest(guestFor(id));
+  const guest = params.get('guest') in CATS ? params.get('guest') : nextGuest || drawGuest();
+  nextGuest = null;
+  lastGuest = guest;
+  preloadGuest(guest);
   level = LEVELS[id - 1];
   const seed = params.has('seed') ? Number(params.get('seed')) : (Math.random() * 2 ** 31) | 0;
-  state = createState(level, seed, { guest: guestFor(id) });
+  state = createState(level, seed, { guest });
   shownReq = null;
   shown = { score: 0, moves: level.moves, goals: state.goals.map((g) => ({ ...g })) };
   busy = false;
