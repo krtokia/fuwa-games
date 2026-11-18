@@ -110,6 +110,17 @@ export class View {
   setSelected(cell) { this.selected = cell; }
   setHint(pair) { this.hint = pair; this.hintT = 0; }
 
+  // 갇힌 칸을 건드렸을 때: 그 간식만 짧게 덜컹
+  rattle(r, c) {
+    this.sound.play('ice');
+    for (const sp of this.pieces.values()) {
+      if (sp.dying || Math.round(sp.x) !== c || Math.round(sp.y) !== r) continue;
+      this.tw.to(sp, { rot: 0.16 }, 60, ease.outQuad)
+        .then(() => this.tw.to(sp, { rot: -0.12 }, 80, ease.inOutQuad))
+        .then(() => this.tw.to(sp, { rot: 0 }, 80, ease.outQuad));
+    }
+  }
+
   // ---------- 단계 연출 ----------
 
   async play(steps, onStep) {
@@ -280,7 +291,9 @@ export class View {
     this.bigText('섞을게요!');
     this.sound.play('shuffle');
     const cx = (this.cols - 1) / 2, cy = (this.rows - 1) / 2;
-    await Promise.all([...this.pieces.values()].map((sp) => this.tw.to(sp, { x: cx, y: cy, s: 0.6 }, 320, ease.inQuad)));
+    // 섞이는 조각만 모은다(얼음에 갇힌 간식은 제자리)
+    const moving = step.pieces.map((p) => this.pieces.get(p.id)).filter(Boolean);
+    await Promise.all(moving.map((sp) => this.tw.to(sp, { x: cx, y: cy, s: 0.6 }, 320, ease.inQuad)));
     for (const p of step.pieces) {
       const sp = this.pieces.get(p.id);
       if (sp) sp.kind = p.kind;
@@ -404,11 +417,6 @@ export class View {
     if (!this.bg) this.bg = this.boardBackground();
     ctx.drawImage(this.bg, 0, 0, this.bg.width / dpr, this.bg.height / dpr);
 
-    // 얼음(조각 아래)
-    for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {
-      const n = this.ice[r][c];
-      if (n > 0) ctx.drawImage(this.sprites.ice(n, Math.round(cs * dpr)), c * cs, r * cs, cs, cs);
-    }
 
     // 선택·힌트 빛
     const ring = (r, c, color, alpha) => {
@@ -465,6 +473,12 @@ export class View {
       ctx.restore();
     }
     ctx.restore();
+
+    // 얼음(조각 위에 덮어 갇힌 것처럼)
+    for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {
+      const n = this.ice[r][c];
+      if (n > 0) ctx.drawImage(this.sprites.ice(n, Math.round(cs * dpr)), c * cs, r * cs, cs, cs);
+    }
 
     // 상자(조각 위)
     for (let r = 0; r < this.rows; r++) for (let c = 0; c < this.cols; c++) {

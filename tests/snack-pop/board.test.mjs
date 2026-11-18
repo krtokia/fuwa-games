@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createState, findGroups, specialFor, swap, findHint, shuffle, applyGravity, bonus,
+  createState, canSwap, findGroups, specialFor, swap, findHint, shuffle, applyGravity, bonus,
   isWon, isLost, starsFor, holdsPiece, CAT, BOMB, LINE_H, LINE_V,
 } from '../../snack-pop/js/core/board.js';
 import { LEVELS } from '../../snack-pop/js/core/levels.js';
@@ -166,16 +166,68 @@ test('리본 상자 + 리본 상자: 5x5', () => {
   for (let r = 2; r <= 6; r++) for (let c = 1; c <= 5; c++) assert.ok(cleared.some((x) => x.r === r && x.c === c));
 });
 
-test('얼음: 그 칸에서 지워지면 한 겹 깨진다', () => {
-  const layout = ['iiI.....', ...Array(7).fill('........')];
+test('얼음: 갇힌 간식은 못 바꾸고, 줄에 끼면 얼음만 깨지고 남는다', () => {
+  const layout = ['iI......', ...Array(7).fill('........')];
   const s = board(['001.....', '..0.....', ...Array(6).fill('........')], { layout, goals: [{ type: 'ice' }] });
-  // (0,2) 는 2겹 얼음이어서 layout 'I' 를 2번 칸에 두었다
-  assert.equal(s.goals[0].target, 4);
-  swap(s, [1, 2], [0, 2]);
-  // 0,0 / 0,1 은 맞춤 칸이라 얼음이 깨짐
-  assert.equal(s.ice[0][0], 0);
-  assert.equal(s.ice[0][1], 0);
-  assert.ok(s.goals[0].have >= 2);
+  assert.equal(s.goals[0].target, 3);
+  assert.equal(canSwap(s, [0, 0], [1, 0]), false);
+  assert.equal(canSwap(s, [0, 1], [0, 2]), false);
+  const ids = [s.cells[0][0].id, s.cells[0][1].id];
+  const res = swap(s, [1, 2], [0, 2]);
+  assert.equal(res.valid, true);
+  const clear = res.steps[1];
+  // 풀린 칸(0,2) 만 지워지고, 갇힌 두 칸은 얼음만 한 겹씩
+  assert.deepEqual(clear.cleared.map((x) => [x.r, x.c]), [[0, 2]]);
+  assert.deepEqual(clear.ice.map((x) => [x.r, x.c, x.left]).sort(), [[0, 0, 0], [0, 1, 1]]);
+  assert.equal(s.cells[0][0].id, ids[0]);
+  assert.equal(s.cells[0][1].id, ids[1]);
+  assert.equal(s.collected[0], 1, '갇힌 간식은 모으기에 세지 않음');
+  assert.equal(s.goals[0].have, 2);
+  // 다 깨진 (0,0) 은 이제 움직일 수 있고, 한 겹 남은 (0,1) 은 아직 못 움직인다
+  assert.equal(canSwap(s, [0, 0], [1, 0]), true);
+  assert.equal(canSwap(s, [0, 1], [1, 1]), false);
+});
+
+test('얼음: 바로 옆에서 맞춰도 한 겹 깨지고, 한 단계에 한 겹만', () => {
+  const layout = ['........', '...I....', ...Array(6).fill('........')];
+  const s = board(['001.....', '..0.....', ...Array(6).fill('........')], { layout, goals: [{ type: 'ice' }] });
+  const id = s.cells[1][3].id;
+  const res = swap(s, [1, 2], [0, 2]); // 0 0 0 이 (0,0)~(0,2): (1,3) 과는 대각선이라 안 닿음
+  assert.ok(!res.steps[1].ice.some((x) => x.r === 1 && x.c === 3));
+  const s2 = board(['0010....', '..0.....', ...Array(6).fill('........')], { layout, goals: [{ type: 'ice' }] });
+  const id2 = s2.cells[1][3].id;
+  const res2 = swap(s2, [1, 2], [0, 2]); // 0 0 0 0 이 (0,0)~(0,3): (0,3) 이 (1,3) 바로 위
+  const hits = res2.steps[1].ice.filter((x) => x.r === 1 && x.c === 3);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].left, 1);
+  assert.equal(s2.cells[1][3].id, id2);
+  assert.ok(id);
+});
+
+test('얼음: 갇힌 간식은 떨어지지 않고, 위 간식은 그 칸을 지나 떨어진다', () => {
+  const layout = ['........', '........', '........', 'i.......', ...Array(4).fill('........')];
+  const rows = Array(8).fill('........');
+  rows[5] = '1101....';
+  const s = board(rows, { layout });
+  const frozen = s.cells[3][0].id;
+  const above = s.cells[2][0].id;
+  const res = swap(s, [5, 2], [5, 3]);
+  assert.equal(res.valid, true);
+  const fall = res.steps.find((x) => x.type === 'fall');
+  assert.ok(!fall.moves.some((m) => m.id === frozen), '갇힌 간식이 떨어짐');
+  assert.ok(fall.moves.some((m) => m.id === above && m.to[0] === 4 && m.to[1] === 0), '위 간식이 갇힌 칸을 지나 (4,0) 으로');
+  // (연쇄 중 옆 맞춤으로 얼음이 깨지면 그 뒤엔 풀려 떨어질 수 있다)
+  if (s.ice[3][0] > 0) assert.equal(s.cells[3][0].id, frozen);
+  assert.ok(noEmpty(s));
+});
+
+test('얼음: 섞어도 갇힌 간식은 제자리', () => {
+  const layout = ['i.i.i.i.', ...Array(7).fill('........')];
+  const s = board(Array(8).fill('........'), { layout });
+  const before = [0, 2, 4, 6].map((c) => s.cells[0][c].id);
+  const st = shuffle(s);
+  assert.deepEqual([0, 2, 4, 6].map((c) => s.cells[0][c].id), before);
+  assert.ok(st.pieces.every((p) => !(p.to[0] === 0 && p.to[1] % 2 === 0)));
 });
 
 test('상자: 맞춤 옆에서 깨지고, 조각은 상자를 통과해 떨어진다', () => {

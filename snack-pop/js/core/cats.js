@@ -1,6 +1,5 @@
 // 구경 오는 고양이(주인공 셋). 성격이 부탁의 빈도·크기를 정하고, 크기가 보상을 정한다.
-// img: cat-outing/cats/<img>-1.webp (빌려 쓰는 그림)
-// peek·face: snack-pop/assets/cats/ 의 전용 그림. 없으면 빌려 쓰는 그림으로 대신한다.
+// 그림: snack-pop/assets/cats/<id>-peek(-happy|-sulk).webp, <id>-face.webp (원본 PNG 는 같은 폴더)
 
 // 받침에 따라 '로/으로' (ㄹ 받침은 '로')
 export function withRo(word) {
@@ -12,21 +11,21 @@ export function withRo(word) {
 
 export const CATS = {
   fuwa: {
-    name: '후와', img: '01', peek: 'fuwa-peek.webp', face: 'fuwa-face.webp', rest: 5, need: [8, 10], turns: 5,
+    name: '후와', rest: 5, need: [8, 10], turns: 5,
     ask: (item, toy) => (toy ? `…${item}, 놀아 줘도 돼.` : `…${item} 가져와.`),
     hello: '…구경 왔다.',
     thanks: '흠, 나쁘지 않군.',
     sulk: '…됐다.',
   },
   shuri: {
-    name: '슈리', img: '04', rest: 2, need: [3, 4], turns: 3,
+    name: '슈리', rest: 2, need: [3, 4], turns: 3,
     ask: (item, toy) => (toy ? `${item}! ${withRo(item)} 놀자!` : `${item}! ${item} 줘!`),
     hello: '구경할래! 구경!',
     thanks: '와아! 고마워!',
     sulk: '칫, 삐졌어!',
   },
   nabi: {
-    name: '나비', img: '02', rest: 3, need: [5, 7], turns: 4,
+    name: '나비', rest: 3, need: [5, 7], turns: 4,
     ask: (item, toy) => (toy ? `${withRo(item)} 놀아 주실래요?` : `${item} 부탁해요.`),
     hello: '실례합니다. 구경할게요.',
     thanks: '감사합니다.',
@@ -42,3 +41,7 @@ export const isToy = (kind) => kind === 1 || kind === 3 || kind === 4;
 
 // 부탁 크기 → 선물 특수
 export const rewardFor = (need) => (need <= 4 ? 'line' : need <= 7 ? 'bomb' : 'cat');
+
+// 표정: ask/hello → 기본, thanks → happy, sulk → sulk
+export const peekArt = (id, mood) => `assets/cats/${id}-peek${mood === 'thanks' ? '-happy' : mood === 'sulk' ? '-sulk' : ''}.webp`;
+export const faceArt = (id) => `assets/cats/${id}-face.webp`;

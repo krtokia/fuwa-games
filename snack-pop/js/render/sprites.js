@@ -276,6 +276,26 @@ function drawCat(ctx, img) {
   }
 }
 
+// 간식 위에 덮는 얼음(갇힘). 속이 비치게 반투명, 테두리와 빛줄기로 '덮였다'를 보인다
+function drawIceCover(ctx, layers) {
+  const thick = layers > 1;
+  ctx.beginPath(); roundRect(ctx, 0.04, 0.04, 0.92, 0.92, 0.16);
+  const g = ctx.createLinearGradient(0, 0, 1, 1);
+  g.addColorStop(0, thick ? 'rgba(214,240,255,.72)' : 'rgba(230,247,255,.55)');
+  g.addColorStop(0.5, thick ? 'rgba(150,205,245,.5)' : 'rgba(180,225,255,.3)');
+  g.addColorStop(1, thick ? 'rgba(110,180,235,.7)' : 'rgba(160,215,250,.5)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = thick ? '#3f8fcf' : '#6db8ee'; ctx.lineWidth = thick ? 0.07 : 0.05; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = 0.06; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0.13, 0.36); ctx.lineTo(0.36, 0.13); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0.13, 0.54); ctx.lineTo(0.24, 0.43); ctx.stroke();
+  if (thick) {
+    ctx.lineWidth = 0.04;
+    ctx.beginPath(); ctx.moveTo(0.64, 0.87); ctx.lineTo(0.87, 0.64); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0.76, 0.89); ctx.lineTo(0.89, 0.76); ctx.stroke();
+  }
+}
+
 function drawIce(ctx, layers) {
   const g = ctx.createLinearGradient(0, 0, 1, 1);
   if (layers > 1) { g.addColorStop(0, '#bfe6ff'); g.addColorStop(1, '#6fb9f0'); }
@@ -358,13 +378,14 @@ export class Sprites {
     return this.get(`snack${kind}`, (c) => { c.translate(0.06, 0.06); c.scale(0.88, 0.88); drawSnack(c, kind); }, size);
   }
 
-  ice(layers, size) { return this.get(`ice${layers}`, (c) => drawIce(c, layers), size); }
+  ice(layers, size) { return this.get(`ice${layers}`, (c) => drawIceCover(c, layers), size); }
+  iceIcon(size) { return this.get('iceIcon', (c) => drawIce(c, 1), size); }
   box(layers, size) { return this.get(`box${layers}`, (c) => drawBox(c, layers), size); }
 
   // DOM 용 아이콘 (목표 표시)
   iconURL(type, kind) {
     const size = 96;
-    const cv = type === 'ice' ? this.ice(1, size) : type === 'box' ? this.box(1, size) : this.piece(kind, null, size);
+    const cv = type === 'ice' ? this.iceIcon(size) : type === 'box' ? this.box(1, size) : this.piece(kind, null, size);
     return cv.toDataURL();
   }
 }

@@ -43,6 +43,9 @@ function replay(s, before, steps) {
   const sim = new Map([...before].map(([id, p]) => [id, { ...p }]));
   const gone = new Set();
   let scoreSum = 0;
+  // 단계마다 얼음 상태(갇힘)를 따라간다: 끝 상태 + 이번 수에 깬 겹 = 시작 상태
+  const ice = s.ice.map((row) => row.slice());
+  for (const st of steps) if (st.type === 'clear') for (const ic of st.ice) ice[ic.r][ic.c]++;
   steps.forEach((st, i) => {
     const E = (m) => errs.push(`step${i} ${st.type}: ${m}`);
     if (st.type === 'swap' || st.type === 'swapBack') {
@@ -75,10 +78,17 @@ function replay(s, before, steps) {
       if (bx.size !== st.boxes.length) E('한 단계에 같은 상자를 두 번 깸');
       const ic = new Set(st.ice.map((b) => b.r * 64 + b.c));
       if (ic.size !== st.ice.length) E('한 단계에 같은 얼음을 두 번 깸');
+      for (const x of st.ice) {
+        ice[x.r][x.c]--;
+        if (ice[x.r][x.c] !== x.left) E(`얼음 겹 불일치 (${x.r},${x.c})`);
+        if (st.cleared.some((cl) => cl.r === x.r && cl.c === x.c)) E(`갇힌 간식이 지워짐 (${x.r},${x.c})`);
+      }
     } else if (st.type === 'fall') {
       for (const m of st.moves) {
         const P = sim.get(m.id);
         if (!P) { E(`move 없는 id ${m.id}`); continue; }
+        if (ice[m.from[0]][m.from[1]] > 0) E(`갇힌 간식이 떨어짐 ${m.id}`);
+        if (ice[m.to[0]][m.to[1]] > 0) E(`갇힌 칸으로 떨어짐 ${m.id}`);
         if (P.r !== m.from[0] || P.c !== m.from[1]) E(`move from 불일치 ${m.id}`);
         if (m.to[1] !== m.from[1] || m.to[0] <= m.from[0]) E(`move 가 아래로가 아님 ${m.id}`);
         P.r = m.to[0]; P.c = m.to[1];
@@ -116,7 +126,9 @@ function replay(s, before, steps) {
       // 판을 바꾸지 않는 알림
     } else if (st.type === 'shuffle') {
       const ids = new Set(st.pieces.map((p) => p.id));
-      if (ids.size !== sim.size) E(`shuffle 조각 수 ${ids.size} != ${sim.size}`);
+      // 얼음에 갇힌 간식은 섞이지 않는다
+      const free = [...sim.values()].filter((P) => !(ice[P.r][P.c] > 0)).length;
+      if (ids.size !== free) E(`shuffle 조각 수 ${ids.size} != 갇히지 않은 ${free}`);
       for (const p of st.pieces) {
         const P = sim.get(p.id);
         if (!P) { E(`shuffle 없는 id ${p.id}`); continue; }
@@ -145,6 +157,9 @@ function boardOk(s) {
     if (!holdsPiece(s, r, c) && s.cells[r][c]) errs.push(`구멍/상자에 조각 (${r},${c})`);
   }
   if (findGroups(s).length) errs.push('남은 맞춤');
+  for (let r = 0; r < s.rows; r++) for (let c = 0; c < s.cols; c++) {
+    if (s.ice[r][c] > 0 && s.cells[r][c] && s.cells[r][c].special) errs.push(`갇힌 칸에 특수 (${r},${c})`);
+  }
   const ids = s.cells.flat().filter(Boolean).map((p) => p.id);
   if (new Set(ids).size !== ids.length) errs.push('중복 id');
   return errs;
@@ -159,8 +174,9 @@ function playGame(level, seed, { mode = 'mixed', sprinkle = false, maxMoves = 60
   for (let mv = 0; s.movesLeft > 0 && mv < maxMoves && !isWon(s); mv++) {
     if (sprinkle && rng() < 0.3) {
       for (let t = 0; t < 3; t++) {
-        const p = s.cells[rng.int(s.rows)][rng.int(s.cols)];
-        if (!p) continue;
+        const y = rng.int(s.rows), x = rng.int(s.cols);
+        const p = s.cells[y][x];
+        if (!p || s.ice[y][x] > 0) continue; // 갇힌 칸엔 특수가 생기지 않는다
         p.special = SP[rng.int(4)];
         if (p.special === CAT) p.kind = -1;
       }
@@ -198,16 +214,17 @@ function playGame(level, seed, { mode = 'mixed', sprinkle = false, maxMoves = 60
 
 // ================= 찾은 버그 =================
 
-test('BUG: 특수가 생기는 칸의 얼음도 맞춤으로 깨져야 한다', () => {
-  // (1,2) 의 0 을 위로 올리면 0 0 0 0 가로 → (0,2) 에 줄무늬. (0,2) 는 얼음 1겹.
-  const layout = ['..i.....', ...Array(7).fill('........')];
-  const s = board(['0010....', '..0.....', ...Array(6).fill('........')], { layout, goals: [{ type: 'ice' }] });
-  const res = swap(s, [1, 2], [0, 2]);
+test('얼음: 4개 줄에 갇힌 간식이 끼면 특수는 풀린 칸에, 갇힌 칸은 얼음만 깨진다', () => {
+  // (1,3) 의 0 을 위로 올리면 0 0 0 0 가로. (0,1) 은 얼음 1겹.
+  const layout = ['.i......', ...Array(7).fill('........')];
+  const s = board(['0001....', '...0....', ...Array(6).fill('........')], { layout, goals: [{ type: 'ice' }] });
+  const res = swap(s, [1, 3], [0, 3]);
   const clear = res.steps[1];
   assert.equal(clear.created.length, 1);
-  assert.deepEqual([clear.created[0].r, clear.created[0].c, clear.created[0].special], [0, 2, LINE_H]);
-  // 설계 문서: "얼음(그 칸에서 맞추면 깨짐)". (0,2) 에서 맞췄는데 얼음이 그대로다.
-  assert.ok(clear.ice.some((x) => x.r === 0 && x.c === 2), '특수 생성 칸 얼음이 깨지지 않음');
+  assert.deepEqual([clear.created[0].r, clear.created[0].c, clear.created[0].special], [0, 3, LINE_H]);
+  assert.ok(clear.ice.some((x) => x.r === 0 && x.c === 1 && x.left === 0));
+  assert.ok(!clear.cleared.some((x) => x.r === 0 && x.c === 1), '갇힌 간식은 남아야 함');
+  assert.ok(!clear.created[0].from.includes(s.cells[0][1].id), '갇힌 간식은 특수로 모여들지 않음');
 });
 
 test('BUG: 보너스에서 일반 간식이 없으면 남은 이동 점수가 어떤 단계에도 실리지 않는다', () => {

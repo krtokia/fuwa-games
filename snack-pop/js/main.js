@@ -1,8 +1,8 @@
 // 화면 연결: 지도 ↔ 게임, 입력 → 엔진 → 연출, 끝 판정, 저장.
 
-import { createState, swap, findHint, holdsPiece, isWon, isLost, bonus, starsFor } from './core/board.js';
+import { createState, swap, findHint, holdsPiece, isFrozen, isWon, isLost, bonus, starsFor } from './core/board.js';
 import { LEVELS } from './core/levels.js';
-import { CATS, guestFor, isToy } from './core/cats.js';
+import { CATS, guestFor, isToy, peekArt, faceArt } from './core/cats.js';
 import { Sprites, KINDS } from './render/sprites.js';
 import { View } from './render/view.js';
 import { Sound } from './audio.js';
@@ -121,7 +121,7 @@ function renderMap() {
       onclick: () => { sound.unlock(); if (open) { sound.play('click'); openIntro(l.id); } else sound.play('nope'); },
     }, el('b', { text: open ? String(l.id) : '🔒' }));
     if (rec) node.append(starRow(rec.stars, 3, 'mini'));
-    if (l.id === current) node.append(el('img', { class: 'avatar', alt: '', src: '../cat-outing/cats/01-1.webp' }));
+    if (l.id === current) node.append(el('img', { class: 'avatar', alt: '', src: 'assets/cats/fuwa-sit.webp' }));
     path.append(node);
   });
   // 지금 판이 보이게
@@ -167,6 +167,7 @@ function openIntro(id) {
 // ---------- 게임 ----------
 
 function startLevel(id) {
+  preloadGuest(guestFor(id));
   level = LEVELS[id - 1];
   const seed = params.has('seed') ? Number(params.get('seed')) : (Math.random() * 2 ** 31) | 0;
   state = createState(level, seed, { guest: guestFor(id) });
@@ -262,6 +263,9 @@ function bump(sel) {
 
 async function doSwap(a, b) {
   if (busy) return;
+  // 얼음에 갇힌 간식은 움직이지 않는다: 덜컹 흔들고 소리만
+  const stuck = [a, b].find((p) => isFrozen(state, ...p));
+  if (stuck) { view.setSelected(null); view.rattle(...stuck); return; }
   busy = true;
   clearHint();
   view.setSelected(null);
@@ -310,7 +314,7 @@ function showWin(stars, newBest) {
   const next = LEVELS[level.id];
   const row = starRow(0, 3, 'big');
   openModal(el('div', { class: 'card win', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'dlg-title' },
-    el('img', { class: 'hero', alt: '', src: '../cat-outing/cats/01-1.webp' }),
+    el('img', { class: 'hero', alt: '', src: 'assets/cats/fuwa-cheer.webp' }),
     el('h2', { id: 'dlg-title', text: '잘했어요!' }),
     row,
     el('p', { class: 'final-score' }, el('span', { text: '점수 ' }), el('b', { text: state.score.toLocaleString() })),
@@ -367,18 +371,15 @@ function toMap() {
 
 // ---------- 구경 고양이 ----------
 
-const catSrc = (id) => `../cat-outing/cats/${CATS[id].img}-1.webp`;
-const peekSrc = (id) => (CATS[id].peek ? `assets/cats/${CATS[id].peek}` : catSrc(id));
-// 동그란 얼굴: 전용 얼굴 그림이 있으면 통째로, 없으면 빌린 그림의 머리 부분을 잘라 쓴다
 function faceSpan(id) {
   const node = el('span', { class: 'face', 'aria-hidden': 'true' });
   setFace(node, id);
   return node;
 }
-function setFace(node, id) {
-  const face = CATS[id].face;
-  node.style.backgroundImage = `url(${face ? `assets/cats/${face}` : catSrc(id)})`;
-  node.classList.toggle('art', !!face);
+function setFace(node, id) { node.style.backgroundImage = `url(${faceArt(id)})`; }
+// 표정이 바뀔 때 깜빡이지 않게 미리 받아 둔다
+function preloadGuest(id) {
+  for (const mood of ['ask', 'thanks', 'sulk']) new Image().src = peekArt(id, mood);
 }
 let peekTimer = 0;
 let helloTimer = 0;
@@ -424,8 +425,7 @@ function peek(kind, gift) {
   } else {
     bubble.append(el('p', { text: kind === 'sulk' ? cat.sulk : cat.hello }));
   }
-  $('#guest-cat').src = peekSrc(id);
-  guest.classList.toggle('art', !!cat.peek);
+  $('#guest-cat').src = peekArt(id, kind);
   // 판 위쪽 높이에 맞춘다
   const game = $('#game').getBoundingClientRect();
   const board = canvas.getBoundingClientRect();

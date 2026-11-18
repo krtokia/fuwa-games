@@ -72,6 +72,8 @@ function countLayers(g) {
 
 export const isCell = (s, r, c) => r >= 0 && c >= 0 && r < s.rows && c < s.cols && s.mask[r][c];
 export const holdsPiece = (s, r, c) => isCell(s, r, c) && s.box[r][c] === 0;
+// 얼음에 갇힌 칸: 간식이 있지만 바꾸기·떨어지기·섞기에서 움직이지 않는다
+export const isFrozen = (s, r, c) => isCell(s, r, c) && s.ice[r][c] > 0;
 const colorOf = (p) => (p && p.special !== CAT ? p.kind : -1);
 
 function newPiece(s, kind, special = null) {
@@ -162,7 +164,7 @@ export function specialFor(group) {
 }
 
 function creationCell(s, group, special, swapped) {
-  const plain = (k) => { const [r, c] = unkey(k); return !s.cells[r][c].special; };
+  const plain = (k) => { const [r, c] = unkey(k); return !s.cells[r][c].special && !isFrozen(s, r, c); };
   if (swapped) {
     for (const [r, c] of swapped) {
       const k = key(r, c);
@@ -202,6 +204,17 @@ function runClear(s, startKeys, opts) {
   const done = new Set();
   const boxHit = new Set();
 
+  // 얼음은 한 단계에 한 겹만: 줄에 끼거나, 특수에 맞거나, 바로 옆에서 맞추면
+  const iceHit = new Set();
+  const hitIce = (r, c) => {
+    const k = key(r, c);
+    if (!isCell(s, r, c) || s.ice[r][c] === 0 || iceHit.has(k)) return;
+    iceHit.add(k);
+    s.ice[r][c]--;
+    step.ice.push({ r, c, left: s.ice[r][c] });
+    addGoal(s, 'ice', 1);
+    step.score += BLOCKER_POINTS;
+  };
   const hitBox = (r, c) => {
     const k = key(r, c);
     if (!isCell(s, r, c) || s.box[r][c] === 0 || boxHit.has(k)) return;
@@ -221,17 +234,16 @@ function runClear(s, startKeys, opts) {
     if (s.box[r][c] > 0) { hitBox(r, c); continue; }
     const p = s.cells[r][c];
     if (!p) continue;
+    if (s.ice[r][c] > 0 || iceHit.has(k)) {
+      // 갇힌 간식: 얼음만 한 겹 깨지고 간식은 남는다(마지막 겹이 깨지면 풀리지만, 그 단계에선 남는다)
+      hitIce(r, c);
+      continue;
+    }
     if (keep.has(k) && opts.matched && opts.matched.has(k)) {
       // 새 특수가 생길 자리: 조각은 남지만 맞춘 칸이므로 모으기·점수·얼음은 똑같이 센다
       step.kept.push({ id: p.id, r, c, kind: p.kind });
       if (p.kind >= 0) countPiece(s, p.kind);
       step.score += PIECE_POINTS * combo;
-      if (s.ice[r][c] > 0) {
-        s.ice[r][c]--;
-        step.ice.push({ r, c, left: s.ice[r][c] });
-        addGoal(s, 'ice', 1);
-        step.score += BLOCKER_POINTS;
-      }
       continue;
     }
 
@@ -247,19 +259,13 @@ function runClear(s, startKeys, opts) {
     const pts = PIECE_POINTS * combo;
     step.score += pts;
     step.points.push({ r, c, value: pts });
-    if (s.ice[r][c] > 0) {
-      s.ice[r][c]--;
-      step.ice.push({ r, c, left: s.ice[r][c] });
-      addGoal(s, 'ice', 1);
-      step.score += BLOCKER_POINTS;
-    }
   }
 
-  // 맞춤 옆 상자는 깨진다
+  // 맞춤 옆 상자·얼음은 깨진다
   if (opts.matched) {
     for (const k of opts.matched) {
       const [r, c] = unkey(k);
-      hitBox(r - 1, c); hitBox(r + 1, c); hitBox(r, c - 1); hitBox(r, c + 1);
+      for (const [y, x] of [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]]) { hitBox(y, x); hitIce(y, x); }
     }
   }
 
@@ -335,6 +341,11 @@ function forPieces(s, fn) {
   }
 }
 
+// 갇히지 않은 간식만
+function forFree(s, fn) {
+  forPieces(s, (p, r, c) => { if (!isFrozen(s, r, c)) fn(p, r, c); });
+}
+
 // 맞춤 무리들을 한 번 터뜨린다. 없으면 null
 function resolveOnce(s, combo, swapped) {
   const groups = findGroups(s);
@@ -347,7 +358,8 @@ function resolveOnce(s, combo, swapped) {
     if (!special) continue;
     const k = creationCell(s, g, special, swapped);
     if (k == null) continue;
-    const from = [...g.cells].filter((t) => t !== k).map((t) => { const [r, c] = unkey(t); return s.cells[r][c].id; });
+    // 갇힌 간식은 남으므로 새 특수로 모여들지 않는다
+    const from = [...g.cells].filter((t) => t !== k && !isFrozen(s, ...unkey(t))).map((t) => { const [r, c] = unkey(t); return s.cells[r][c].id; });
     creations.push({ k, special, kind: special === CAT ? -1 : g.kind, from });
   }
   return runClear(s, [...matched], { matched, creations, combo });
@@ -355,12 +367,12 @@ function resolveOnce(s, combo, swapped) {
 
 // ---------- 떨어뜨리기 ----------
 
-// 열마다 아래로 모은다. 구멍과 상자는 건너뛰고(통과해서) 떨어진다. 빈 위쪽은 새 조각.
+// 열마다 아래로 모은다. 구멍·상자·갇힌 칸은 건너뛰고(통과해서) 떨어진다. 빈 위쪽은 새 조각.
 export function applyGravity(s) {
   const step = { type: 'fall', moves: [], spawns: [] };
   for (let c = 0; c < s.cols; c++) {
     const slots = [];
-    for (let r = s.rows - 1; r >= 0; r--) if (holdsPiece(s, r, c)) slots.push(r);
+    for (let r = s.rows - 1; r >= 0; r--) if (holdsPiece(s, r, c) && !isFrozen(s, r, c)) slots.push(r);
     if (!slots.length) continue;
     const pieces = [];
     for (const r of slots) if (s.cells[r][c]) pieces.push({ p: s.cells[r][c], r });
@@ -389,6 +401,7 @@ export function applyGravity(s) {
 export function canSwap(s, a, b) {
   if (!holdsPiece(s, ...a) || !holdsPiece(s, ...b)) return false;
   if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) return false;
+  if (isFrozen(s, ...a) || isFrozen(s, ...b)) return false;
   return !!(s.cells[a[0]][a[1]] && s.cells[b[0]][b[1]]);
 }
 
@@ -462,7 +475,7 @@ function comboClear(s, pa, pb, a, b, steps) {
     const convert = { type: 'convert', cells: [] };
     for (const [y, x] of targets) {
       const p = s.cells[y][x];
-      if (p.special) continue;
+      if (p.special || isFrozen(s, y, x)) continue;
       p.special = other.special === BOMB ? BOMB : s.rng() < 0.5 ? LINE_H : LINE_V;
       convert.cells.push({ id: p.id, r: y, c: x, kind: p.kind, special: p.special });
     }
@@ -530,7 +543,7 @@ function afterMove(s, steps) {
 // 일반 간식 하나를 선물 특수로 바꾼다
 function giveGift(s, req) {
   const plain = [];
-  forPieces(s, (p, r, c) => { if (!p.special) plain.push([r, c]); });
+  forFree(s, (p, r, c) => { if (!p.special) plain.push([r, c]); });
   if (!plain.length) return null;
   const [r, c] = s.rng.pick(plain);
   const p = s.cells[r][c];
@@ -576,7 +589,7 @@ export function findHint(s) {
 export function shuffle(s) {
   const spots = [];
   const pieces = [];
-  forPieces(s, (p, r, c) => { spots.push([r, c]); pieces.push(p); });
+  forFree(s, (p, r, c) => { spots.push([r, c]); pieces.push(p); });
   for (let tries = 0; tries < 300; tries++) {
     for (let i = pieces.length - 1; i > 0; i--) {
       const j = s.rng.int(i + 1);
@@ -606,7 +619,7 @@ export function bonus(s) {
   const steps = [];
   while (s.movesLeft > 0) {
     const plain = [];
-    forPieces(s, (p, r, c) => { if (!p.special) plain.push([r, c]); });
+    forFree(s, (p, r, c) => { if (!p.special) plain.push([r, c]); });
     s.movesLeft--;
     s.score += BONUS_POINTS;
     if (!plain.length) {

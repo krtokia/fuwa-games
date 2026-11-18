@@ -140,7 +140,7 @@ button { font: inherit; color: inherit; }
 @keyframes ring { from { transform: scale(.85); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }
 .node .stars.mini { position: absolute; left: 50%; bottom: -26px; transform: translateX(-50%); font-size: 20px; }
 .node .avatar {
-  position: absolute; width: 66px; left: -58px; top: -40px; pointer-events: none;
+  position: absolute; width: 76px; left: -64px; top: -48px; pointer-events: none;
   filter: drop-shadow(0 4px 2px rgba(0, 0, 0, .2));
   animation: bob 1.4s ease-in-out infinite;
 }
@@ -272,29 +272,23 @@ button { font: inherit; color: inherit; }
 #game { position: relative; overflow: hidden; }
 .guest {
   position: absolute; right: 0; top: 120px; z-index: 5;
-  width: 120px; height: 120px;
+  width: 140px; height: 140px;
   pointer-events: none;
 }
 .guest-cat {
-  position: absolute; inset: 0; width: 120px; height: 120px;
-  transform: translateX(110%) rotate(-90deg);
+  position: absolute; inset: 0; width: 140px; height: 140px;
+  transform: translateX(100%);
   transition: transform .38s cubic-bezier(.3, 1.5, .5, 1);
-  filter: drop-shadow(-3px 4px 3px rgba(0, 0, 0, .25));
+  filter: drop-shadow(-2px 3px 2px rgba(0, 0, 0, .2));
 }
-.guest.peek .guest-cat { transform: translateX(46%) rotate(-90deg); }
+/* 오른쪽 끝에서 잘린 구도라 눕히지 않고 밀어 넣기만 한다. 표정은 그림이 바꾼다 */
+.guest.peek .guest-cat { transform: translateX(0); }
+.guest.peek.sulk .guest-cat { transform: translateX(6%); }
 .guest.peek.happy .guest-cat { animation: hop .5s ease-out 2; }
-.guest.peek.sulk .guest-cat { transform: translateX(62%) rotate(-80deg); }
-@keyframes hop { 50% { transform: translateX(40%) translateY(-14px) rotate(-96deg); } }
-/* 전용 빼꼼 그림: 오른쪽 끝에서 잘린 구도라 눕히지 않고 밀어 넣기만 한다 */
-.guest.art { width: 140px; height: 140px; }
-.guest.art .guest-cat { width: 140px; height: 140px; transform: translateX(100%); filter: drop-shadow(-2px 3px 2px rgba(0, 0, 0, .2)); }
-.guest.art.peek .guest-cat { transform: translateX(0); }
-.guest.art.peek.sulk .guest-cat { transform: translateX(22%) rotate(4deg); }
-.guest.art.peek.happy .guest-cat { animation: hop-art .5s ease-out 2; }
-@keyframes hop-art { 50% { transform: translateY(-12px); } }
-.guest.art .bubble { right: 98px; }
+@keyframes hop { 50% { transform: translateY(-12px); } }
+.bubble { right: 98px; }
 .bubble {
-  position: absolute; right: 74px; top: 6px;
+  position: absolute; right: 98px; top: 6px;
   width: max-content; max-width: min(230px, calc(100vw - 110px));
   background: var(--panel); color: var(--ink);
   border: 3px solid #3a2a22; border-radius: 20px;
@@ -323,8 +317,7 @@ button { font: inherit; color: inherit; }
   background: var(--panel); cursor: pointer;
   box-shadow: 0 3px 0 rgba(58, 42, 34, .35);
 }
-.face { display: inline-block; flex: none; border-radius: 50%; background-color: #ffe7c7; background-repeat: no-repeat; background-size: 190%; background-position: 50% 4%; border: 2px solid #3a2a22; }
-.face.art { background-size: cover; background-position: center; }
+.face { display: inline-block; flex: none; border-radius: 50%; background-color: #ffe7c7; background-repeat: no-repeat; background-size: cover; background-position: center; border: 2px solid #3a2a22; }
 .mission .m-cat { width: 30px; height: 30px; }
 .mission .m-icon { width: 28px; height: 28px; }
 .mission b { font-family: var(--display); font-weight: 400; font-size: 18px; }
