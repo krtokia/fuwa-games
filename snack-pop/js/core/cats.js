@@ -9,27 +9,31 @@ export function withRo(word) {
   return `${word}${fin === 0 || fin === 8 ? '로' : '으로'}`;
 }
 
+// 성격은 캐릭터 바이블(실제 관찰)을 따른다. 가게·부탁 같은 상황은 게임 각색.
+//   후와: 도도한 얼음공주(은근한 츤데레 말투). 드물게, 크게 부탁
+//   슈리: 누구에게나 다정한 애교쟁이. 중간
+//   나비: 겁 많은 수다쟁이 장난꾸러기. 자주, 작게 조름
 export const CATS = {
   fuwa: {
     name: '후와', rest: 5, need: [8, 9], turns: 6,
-    ask: (item, toy) => (toy ? `…${item}, 놀아 줘도 돼.` : `…${item} 가져와.`),
-    hello: '…구경 왔다.',
-    thanks: '흠, 나쁘지 않군.',
-    sulk: '…됐다.',
+    ask: (item, toy) => (toy ? `${item}? …조금만 놀아 줄게.` : `${item}… 있으면 두고 가.`),
+    hello: '…구경만 할 거야. 신경 쓰지 마.',
+    thanks: '…고마워. 한 번만 말할 거야.',
+    sulk: '됐어. 안 기다렸어.',
   },
   shuri: {
-    name: '슈리', rest: 2, need: [3, 4], turns: 3,
-    ask: (item, toy) => (toy ? `${item}! ${withRo(item)} 놀자!` : `${item}! ${item} 줘!`),
-    hello: '구경할래! 구경!',
-    thanks: '와아! 고마워!',
-    sulk: '칫, 삐졌어!',
+    name: '슈리', rest: 3, need: [5, 7], turns: 4,
+    ask: (item, toy) => (toy ? `${withRo(item)} 놀아 줘! 응? 응?` : `${item}! ${item} 줘, 응?`),
+    hello: '안녕! 나도 구경할래!',
+    thanks: '고마워! 최고야!',
+    sulk: '힝… 다음엔 꼭 줘!',
   },
   nabi: {
-    name: '나비', rest: 3, need: [5, 7], turns: 4,
-    ask: (item, toy) => (toy ? `${withRo(item)} 놀아 주실래요?` : `${item} 부탁해요.`),
-    hello: '실례합니다. 구경할게요.',
-    thanks: '감사합니다.',
-    sulk: '아쉽네요.',
+    name: '나비', rest: 2, need: [3, 4], turns: 3,
+    ask: (item, toy) => (toy ? `${item}! ${withRo(item)} 놀자! 빨리빨리!` : `저, 저기… ${item} 있어? 줘, 줘!`),
+    hello: '…아무도 없지? 구경할래.',
+    thanks: '우와와! 고마워 고마워!',
+    sulk: '냐아… 숨을래.',
   },
 };
 

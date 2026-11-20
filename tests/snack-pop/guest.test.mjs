@@ -45,7 +45,7 @@ test('첫 수 뒤에 부탁, 크기는 성격 범위 안', () => {
 });
 
 test('부탁한 간식을 지우면 have 가 늘고, 다 채우면 선물(특수)이 판에 생긴다', () => {
-  const s = createState(level(), 5, { guest: 'shuri' });
+  const s = createState(level(), 5, { guest: 'nabi' });
   play(s);
   assert.ok(s.request);
   // 부탁을 거의 다 채운 상태로 만들고 아무 수나 둔다 → 이번 수에 그 색을 하나라도 지우면 성공
@@ -56,10 +56,10 @@ test('부탁한 간식을 지우면 have 가 늘고, 다 채우면 선물(특수
   assert.ok(gift);
   assert.equal(end.ok, true);
   assert.equal(s.request, null);
-  assert.equal(s.requestRest, CATS.shuri.rest);
+  assert.equal(s.requestRest, CATS.nabi.rest);
   const p = s.cells[gift.r][gift.c];
   assert.equal(p.id, gift.id);
-  assert.ok([LINE_H, LINE_V].includes(p.special), '슈리(3~4개)는 줄무늬');
+  assert.ok([LINE_H, LINE_V].includes(p.special), '나비(3~4개)는 줄무늬');
   assert.ok(types(res).indexOf('gift') > types(res).lastIndexOf('fall'), '선물은 연쇄가 끝난 뒤');
 });
 
@@ -73,8 +73,8 @@ test('지워진 조각 수만큼 have 가 오른다(맞춤 집계와 같음)', (
   if (s.request) assert.equal(s.request.have - have0, Math.min(s.request.need - have0, s.collected[kind] - before));
 });
 
-test('후와(8개 이상) 선물은 싹쓸이 후와, 나비는 리본 상자', () => {
-  for (const [guest, special] of [['fuwa', CAT], ['nabi', BOMB]]) {
+test('후와(8개 이상) 선물은 싹쓸이 후와, 슈리(5~7개)는 리본 상자', () => {
+  for (const [guest, special] of [['fuwa', CAT], ['shuri', BOMB]]) {
     const s = createState(level(), 7, { guest });
     play(s);
     s.request.have = s.request.need;
