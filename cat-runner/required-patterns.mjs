@@ -1,0 +1,33 @@
+// Mandatory route sections. The long missing ground cannot be crossed by a
+// baseline double jump: intermediate landings must reset the two-jump budget.
+// Raw definitions intentionally do not import course.mjs (which imports these).
+export const REQUIRED_PATTERNS = [
+ {id:'required-sky-bridge',name:'2층을 밟고, 3층으로!',difficulty:3,challenge:true,requiredRoute:true,
+  encounters:[[1.8,'gap',{duration:2.85,optionalRoute:true,hint:'바닥이 없어요! 위층으로'}],[3.85,'crate',{floorHeight:192,optionalRoute:true}]],
+  terrain:[[0,1.8,0],[4.65,6,0]],platforms:[[.95,2.6,96,2],[2.4,4.3,192,3]],
+  routeInputs:[[.7,1],[1.03,2],[2.1,1],[2.43,2],[3.5,1]],
+  routePickups:[[.82,null,'fish'],[1.15,null,'fish'],[1.92,128.5,'fish'],[3.3,224.5,'star'],[3.86,300,'star']],
+  routeCues:[[.45,1.15,'바닥이 끊겨요! 두 번 톡으로 2층'],[1.85,2.55,'2층에서 다시 두 번 톡! 3층으로'],[3.2,3.85,'3층 상자! 짧게 톡']],
+  routePlan:{taps:[.7,1.03,2.1,2.43,3.5],floors:[96,192],skipTapIndices:[2,3]}},
+ {id:'required-broken-roof',name:'끊긴 3층, 공중에서 한 번 더',difficulty:4,challenge:true,requiredRoute:true,
+  encounters:[[1.8,'gap',{duration:2.85,optionalRoute:true,hint:'2층·3층을 밟아 건너요'}],[3.9,'crate',{floorHeight:192,optionalRoute:true}]],
+  terrain:[[0,1.8,0],[4.65,6,0]],platforms:[[.95,2.65,96,2],[2.4,3.35,192,3],[3.65,4.5,192,3]],
+  routeInputs:[[.7,1],[1.03,2],[2.1,1],[2.43,2],[3.25,1],[3.6,2]],
+  routePickups:[[.82,null,'fish'],[1.15,null,'fish'],[1.92,128.5,'fish'],[3.1,224.5,'star'],[3.8,315,'star']],
+  routeCues:[[.45,1.15,'두 번 톡! 먼저 2층에 착지'],[1.85,2.55,'다시 두 번 톡으로 3층'],[3,3.7,'지붕이 끊겨요! 점프 뒤 한 번 더']],
+  routePlan:{taps:[.7,1.03,2.1,2.43,3.25,3.6],floors:[96,192],skipTapIndices:[2,3]}},
+ {id:'required-drop-relay',name:'3층에서 내려와, 2층에서 다시',difficulty:4,challenge:true,requiredRoute:true,
+  encounters:[[1.8,'gap',{duration:2.85,optionalRoute:true,hint:'위층 발판을 밟아 건너요'}],[4.2,'crate',{floorHeight:96,optionalRoute:true}]],
+  terrain:[[0,1.8,0],[4.65,6,0]],platforms:[[.95,2.55,96,2],[2.4,3.35,192,3],[3.5,4.6,96,2]],
+  routeInputs:[[.7,1],[1.03,2],[2.1,1],[2.43,2],[3.85,1]],
+  routePickups:[[.82,null,'fish'],[1.15,null,'fish'],[1.92,128.5,'fish'],[3.1,224.5,'star'],[4.2,200,'star']],
+  routeCues:[[.45,1.15,'바닥 대신 2층으로! 두 번 톡'],[1.85,2.55,'한 층 더! 다시 두 번 톡'],[3.05,3.7,'지붕 끝에서 2층으로 내려와요'],[3.7,4.2,'착지 뒤 상자! 짧게 톡']],
+  routePlan:{taps:[.7,1.03,2.1,2.43,3.85],floors:[96,192,96],skipTapIndices:[2,3]}},
+ {id:'required-balcony-gap',name:'발코니를 밟고, 긴 틈을 건너요',difficulty:3,challenge:true,requiredRoute:true,
+  encounters:[[1.8,'gap',{duration:2.85,optionalRoute:true,hint:'발코니를 밟아 건너요'}],[4.05,'crate',{floorHeight:96,optionalRoute:true}]],
+  terrain:[[0,1.8,0],[4.65,6,0]],platforms:[[.95,2.4,96,2],[3.2,4.45,96,2]],
+  routeInputs:[[.7,1],[1.03,2],[2.3,1],[2.63,2],[3.7,1]],
+  routePickups:[[.82,null,'fish'],[1.15,null,'fish'],[1.92,128.5,'fish'],[3,295,'star'],[4.05,200,'star']],
+  routeCues:[[.45,1.15,'두 번 톡! 2층이 유일한 길'],[2.05,2.75,'긴 발코니 틈! 두 번 톡'],[3.4,4.05,'착지 뒤 상자! 짧게 톡']],
+  routePlan:{taps:[.7,1.03,2.3,2.63,3.7],floors:[96,96],skipTapIndices:[2,3]}},
+];
