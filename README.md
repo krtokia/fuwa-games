@@ -9,7 +9,7 @@
 
 - `/cat-runner/` — 후와 달리기. Phaser 3.90 시간제 러너, 상세는 아래 「후와 달리기」 절.
 
-게임 목록 썸네일은 `thumbs/`에 둔다. 재생성하려면 루트에서 `npm install --no-save --no-package-lock @napi-rs/canvas@0.1.80` 후 `node tools/make-thumbs.mjs`를 실행한다.
+게임 목록 키 아트 원본과 제작 기록은 `docs/art/thumbs/`에, 배포용 썸네일은 `thumbs/`에 둔다. 재생성하려면 루트에서 `npm install --no-save --no-package-lock @napi-rs/canvas@0.1.80` 후 `node tools/make-thumbs.mjs`를 실행한다.
 
 테스트: `node --test 'tests/**/*.test.mjs'` (Node 20+, 의존성 없음).
 
