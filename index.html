@@ -20,16 +20,34 @@
 :root[data-theme="dark"] { --bg: #16120f; --card: #221c17; --ink: #f3ebe1; --muted: #a89c8f; --line: #362c24; --accent: #7fd1b9; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.5; }
-main { width: min(720px, 100% - 32px); margin: 0 auto; padding: 48px 0 64px; }
-h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; margin: 0; }
-.sub { color: var(--muted); margin: 4px 0 32px; }
-.games { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
-.game { display: block; background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 14px; color: inherit; text-decoration: none; transition: transform .2s, border-color .2s; }
-.game:hover, .game:focus-visible { transform: translateY(-4px); border-color: var(--accent); outline: none; }
-.game .thumb { aspect-ratio: 1; border-radius: 14px; background: #e8c56c; display: grid; place-items: center; overflow: hidden; }
-.game .thumb img { width: 70%; height: 70%; object-fit: contain; }
-.game b { display: block; font-family: var(--display); font-weight: 400; font-size: 1.35rem; margin-top: 10px; }
-.game span { color: var(--muted); font-size: .92rem; }
+main { width: min(920px, 100% - 32px); margin: 0 auto; padding: clamp(28px, 6vw, 60px) 0 56px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.4rem, 6vw, 3.5rem); line-height: 1.08; margin: 0; }
+.sub { color: var(--muted); margin: 8px 0 24px; }
+.games { display: grid; gap: 18px; }
+@media (min-width: 660px) {
+  .games { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+}
+.game { display: block; overflow: hidden; background: var(--card); border: 1px solid var(--line); border-radius: 22px; color: inherit; text-decoration: none; box-shadow: 0 3px 0 var(--line); }
+.game:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.thumb { aspect-ratio: 16 / 10; overflow: hidden; background: var(--line); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.details { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 10px; padding: 14px 16px 17px; }
+.game h2 { font-family: var(--display); font-weight: 400; font-size: 1.5rem; line-height: 1.15; margin: 0; }
+.game p { grid-column: 1 / -1; color: var(--muted); font-size: .95rem; margin: 0; }
+.tag { color: var(--accent); border: 1px solid var(--line); border-radius: 99px; padding: 2px 9px; font-size: .8rem; }
+.game:active { border-color: var(--accent); }
+@media (hover: hover) {
+  .game:hover { border-color: var(--accent); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .game { transition: transform .2s, border-color .2s; }
+  .thumb img { transition: transform .25s; }
+  .game:active { transform: scale(.99); }
+  @media (hover: hover) {
+    .game:hover { transform: translateY(-3px); }
+    .game:hover img { transform: scale(1.035); }
+  }
+}
 footer { margin-top: 40px; color: var(--muted); font-size: .9rem; }
 footer a { color: var(--accent); }
 </style>
@@ -40,19 +58,28 @@ footer a { color: var(--accent); }
   <p class="sub">고양이 후와네 작은 게임들</p>
   <div class="games">
     <a class="game" href="/cat-outing/">
-      <div class="thumb"><img src="/cat-outing/cats/01-1.webp" alt="" width="320" height="320"></div>
-      <b>고양이 나들이</b>
-      <span>고양이를 눌러 방 밖으로 내보내는 퍼즐</span>
+      <div class="thumb"><img src="/thumbs/cat-outing.webp" alt="고양이들이 격자 방에서 열린 문을 향하는 모습" width="960" height="600" loading="eager" decoding="async"></div>
+      <div class="details">
+        <h2>고양이 나들이</h2>
+        <span class="tag">퍼즐</span>
+        <p>고양이를 눌러 방 밖으로 내보내요</p>
+      </div>
     </a>
     <a class="game" href="/snack-pop/">
-      <div class="thumb" style="background:#ffc9d6"><img src="/cat-outing/cats/01-1.webp" alt="" width="320" height="320"></div>
-      <b>간식 팡팡</b>
-      <span>고양이 간식을 세 개씩 맞추는 퍼즐</span>
+      <div class="thumb"><img src="/thumbs/snack-pop.webp" alt="간식 블록이 놓인 판 옆으로 빼꼼 나온 후와" width="960" height="600" loading="lazy" decoding="async"></div>
+      <div class="details">
+        <h2>간식 팡팡</h2>
+        <span class="tag">매치3</span>
+        <p>같은 간식을 세 개씩 맞춰요</p>
+      </div>
     </a>
     <a class="game" href="/cat-runner/">
-      <div class="thumb" style="background:#314e53"><img src="/cat-runner/assets/fuwa-generated.png" alt="" width="180" height="122"></div>
-      <b>후와 달리기</b>
-      <span>톡, 한 번 더 톡! 랜덤 골목에서 시간 포션을 모아요</span>
+      <div class="thumb"><img src="/thumbs/cat-runner.webp" alt="달밤 골목에서 생선과 별을 향해 점프하는 후와" width="960" height="600" loading="lazy" decoding="async"></div>
+      <div class="details">
+        <h2>후와 달리기</h2>
+        <span class="tag">러너</span>
+        <p>골목을 뛰어넘고 시간 포션을 모아요</p>
+      </div>
     </a>
   </div>
   <footer><a href="https://fuwa.dad/">← 후와 홈</a></footer>
